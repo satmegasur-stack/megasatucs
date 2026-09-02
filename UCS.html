@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ASUS - Preparacion de reparaciones</title>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 20px;
+            background-color: #f4f7f6;
+            color: #333;
+        }
+        .header-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #2c3e50;
+            margin: 0;
+        }
+        .nav-buttons {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .btn-nav {
+            padding: 10px 18px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 0.95em;
+            color: white;
+            transition: opacity 0.2s;
+        }
+        .btn-inventory-nav { background-color: #2c3e50; }
+        .btn-history-nav { background-color: #7f8c8d; }
+        .btn-nav:hover { opacity: 0.9; }
+
+        p.subtitle {
+            color: #7f8c8d;
+            margin-top: -15px;
+            margin-bottom: 25px;
+        }
+        
+        input[type="file"] { display: none; }
+        .custom-file-upload {
+            background-color: #3498db;
+            color: #fff;
+            display: inline-block;
+            padding: 10px 18px;
+            cursor: pointer;
+            border-radius: 5px;
+            font-weight: bold;
+            font-size: 0.95em;
+            transition: opacity 0.2s;
+        }
+        .custom-file-upload.btn-parts-load {
+            background-color: #e67e22;
+        }
+        .custom-file-upload:hover {
+            opacity: 0.9;
+        }
+        .status-msg {
+            font-weight: 600;
+            font-size: 1em;
+        }
+        
+        .table-container {
+            overflow-x: auto;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            border: 1px solid #e0e0e0;
+            max-height: 550px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 0.9em;
+        }
+        th, td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #e0e0e0;
+            white-space: nowrap;
+        }
+        th {
+            background-color: #34495e;
+            color: #ffffff;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        tr:nth-child(even) { background-color: #f9f9f9; }
+        tr:hover { background-color: #f1f1f1; }
+        
+        .badge-repair {
+            background-color: #e74c3c;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            font-weight: bold;
+        }
+        
+        .action-btn {
+            padding: 6px 12px;
+            margin-right: 5px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 0.85em;
+        }
+        .btn-view { background-color: #2c3e50; color: white; }
+        .btn-status-red { background-color: #e74c3c; color: white; }
+        .btn-status-green { background-color: #2ecc71; color: white; }
+        .btn-delete-row { background-color: #c0392b; color: white; }
+
+        tr.row-allocated { background-color: #d5f5e3 !important; }
+        tr.row-allocated:hover { background-color: #c3f0cf !important; }
+        tr.row-pending-alloc { background-color: #fdebd0 !important; }
+        tr.row-pending-alloc:hover { background-color: #fbdcb3 !important; }
+
+        .badge-history-warn {
+            background-color: #f39c12;
+            color: white;
+            padding: 3px 6px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            font-weight: bold;
+            margin-left: 6px;
+        }
+        .badge-alloc-ok {
+            background-color: #2ecc71;
+            color: white;
+            padding: 3px 6px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: bold;
+        }
+        .badge-alloc-pending {
+            background-color: #e67e22;
+            color: white;
+            padding: 3px 6px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: bold;
+        }
+        
+        .print-btn { background-color: #9b59b6; color: white; padding: 8px 16px; border-radius: 5px; cursor: pointer; font-weight: bold; float: right; margin-left: 10px; border:none;}
+        .ready-btn { background-color: #2ecc71; color: white; padding: 8px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; float: left; border:none; font-size: 1em;}
+
+        .search-container {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .search-box {
+            flex: 1;
+            padding: 11px;
+            border: 1px solid #cbd5e1;
+            border-radius: 5px;
+            box-sizing: border-box;
+            font-size: 0.95em;
+        }
+        .btn-main-print {
+            background-color: #34495e;
+            color: white;
+            border: none;
+            padding: 0 20px;
+            border-radius: 5px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 0.95em;
+        }
+
+        .form-container {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            border: 1px solid #e2e8f0;
+        }
+        .form-grid {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .form-grid input {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .badge-location {
+            background-color: #34495e;
+            color: white;
+            padding: 3px 6px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .badge-unlocated {
+            background-color: #94a3b8;
+            color: white;
+            padding: 3px 6px;
+            border-radius: 4px;
+            font-style: italic;
+        }
+
+        .modal {
+            display: none; 
+            position: fixed; 
+            z-index: 100; 
+            left: 0; top: 0; width: 100%; height: 100%; 
+            background-color: rgba(0,0,0,0.5); 
+            animation: fadeIn 0.3s;
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 5% auto; 
+            padding: 25px;
+            border-radius: 8px;
+            width: 65%; 
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            position: relative;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .close-btn {
+            color: #aaa; position: absolute; top: 15px; right: 20px; font-size: 28px; font-weight: bold; cursor: pointer;
+        }
+        .close-btn:hover { color: #000; }
+        .modal h3 { margin-top: 0; color: #2c3e50; border-bottom: 2px solid #ecf0f1; padding-bottom: 10px; }
+        textarea { width: 100%; height: 180px; padding: 12px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 6px; font-family: monospace; background-color: #fafafa;}
+        .save-btn { background-color: #2ecc71; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin-top: 10px; }
+        
+        .modal-table { width: 100%; margin-top: 15px; border-collapse: collapse; }
+        .modal-table th { background-color: #7f8c8d; color: white; }
+        .modal-table td, .modal-table th { padding: 10px; border: 1px solid #e0e0e0; }
+
+        #print-main-container, #print-inventory-container { display: none; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        @media print {
+            .header-bar, p.subtitle, .search-container, .table-container, .modal, .close-btn, .print-btn, .ready-btn, button, input {
+                display: none !important;
+            }
+            #print-main-container.print-active-target, 
+            #print-inventory-container.print-active-target,
+            #parts-modal.print-active-target {
+                display: block !important;
+                position: relative !important;
+                left: 0 !important; top: 0 !important; width: 100% !important; height: auto !important;
+                background: white !important; overflow: visible !important;
+            }
+            #parts-modal.print-active-target { position: absolute !important; background: transparent !important; }
+            #parts-modal.print-active-target .modal-content {
+                width: 100% !important; margin: 0 !important; padding: 0 !important;
+                box-shadow: none !important; max-height: none !important; overflow: visible !important;
+            }
+            body { background: white !important; color: #000 !important; margin: 0; padding: 0; }
+            th { background-color: #555 !important; color: #fff !important; }
+            td, th { border: 1px solid #aaa !important; }
+            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+            .print-item-block {
+                background: #fff !important; border: 2px solid #333 !important;
+                border-radius: 6px; padding: 15px; margin-bottom: 25px; page-break-inside: avoid;
+            }
+            .print-item-header { font-size: 1.1em; margin-bottom: 10px; border-bottom: 2px dashed #666; padding-bottom: 5px; }
+            .print-parts-list { width: 100%; border-collapse: collapse; margin-top: 5px; }
+            .print-parts-list th { background-color: #eee !important; color: #000 !important; font-size: 0.85em; padding: 5px; }
+            .print-parts-list td { padding: 6px; font-size: 0.85em; white-space: normal !important; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header-bar">
+        <h1>ASUS - Preparación de reparaciones</h1>
+        <div class="nav-buttons">
+            <label for="update-file-input" class="custom-file-upload">📥 Carga Repair</label>
+            <input type="file" id="update-file-input" accept=".xlsx, .xls, .csv" />
+
+            <label for="parts-file-input" class="custom-file-upload btn-parts-load">🛠️ Cargar Piezas (KBO)</label>
+            <input type="file" id="parts-file-input" accept=".xlsx, .xls, .csv" />
+            
+            <button class="btn-nav btn-inventory-nav" onclick="openInventoryModal()">📦 Inventario</button>
+            <button class="btn-nav btn-history-nav" onclick="openHistoryModal()">📜 Historial</button>
+        </div>
+    </div>
+    
+    <p class="subtitle">
+        Gestión unificada en la nube para equipos en <strong>REPAIR</strong> con cruce automatizado de piezas por RMA | 
+        <span id="status-msg" class="status-msg">Conectando con Firebase...</span>
+    </p>
+    
+    <div class="search-container">
+        <input type="text" id="search-main" class="search-box" placeholder="🔍 Buscar RMA o Número de Serie en la lista principal..." oninput="renderMainTable()">
+        <button class="btn-main-print" onclick="printMainEquipmentList()">𖨾 Imprimir Equipos</button>
+    </div>
+
+    <div class="table-container">
+        <table id="result-table">
+            <thead>
+                <tr id="table-header"></tr>
+            </thead>
+            <tbody id="table-body"></tbody>
+        </table>
+    </div>
+
+    <div id="print-main-container"></div>
+    <div id="print-inventory-container"></div>
+
+    <div id="parts-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeModal('parts-modal')">&times;</span>
+            <h3 id="modal-title">Gestionar Piezas</h3>
+            <div id="modal-body"></div>
+        </div>
+    </div>
+
+    <div id="inventory-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeModal('inventory-modal')">&times;</span>
+            <h3>📦 Maestro de Inventario de Piezas</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <div class="form-container">
+                    <h4 style="margin:0 0 10px 0; color:#2c3e50;" id="form-inv-title">Añadir nueva pieza</h4>
+                    <div class="form-grid">
+                        <input type="text" id="inv-pn" placeholder="Número de Pieza (Org PN)">
+                        <input type="text" id="inv-location" placeholder="Ubicación en taller">
+                    </div>
+                    <button class="save-btn" id="btn-save-inv" onclick="saveInventoryItem()">Guardar en Inventario</button>
+                    <button class="action-btn" id="btn-cancel-edit" style="display:none; background-color:#94a3b8; color:white; margin-top:10px;" onclick="cancelInventoryEdit()">Cancelar</button>
+                </div>
+                <div class="form-container" style="border-left: 4px solid #3498db;">
+                    <h4 style="margin:0 0 10px 0; color:#3498db;">📥 Carga Masiva por Ubicación</h4>
+                    <div class="form-grid">
+                        <input type="text" id="bulk-inv-location" placeholder="Ubicación única (ej. Estantería B3)">
+                    </div>
+                    <textarea id="bulk-inv-pns" placeholder="Pega los artículos (Org PN) separados por comas o saltos de línea..." style="height: 80px; margin-top:5px;"></textarea>
+                    <button class="save-btn" style="background-color: #3498db; margin-top:5px;" onclick="saveBulkInventory()">Asignar Ubicación Masivamente</button>
+                </div>
+            </div>
+            <div class="form-container" style="margin-top:5px;">
+                <button class="action-btn" style="background-color: #9b59b6; color: white;" onclick="exportInventoryBackup()">📤 Exportar Respaldo (JSON)</button>
+                <label class="action-btn" style="background-color: #34495e; color: white; cursor: pointer; display: inline-block; padding: 6px 12px; border-radius: 4px; font-weight: bold; font-size: 0.85em; text-align: center;">
+                    📥 Importar Respaldo
+                    <input type="file" id="import-inv-file" accept=".json" onchange="importInventoryBackup(event)">
+                </label>
+                <button class="action-btn" style="background-color: #2c3e50; color: white;" onclick="printInventoryFilteredList()">𖨾 Imprimir Inventario</button>
+            </div>
+            <input type="text" id="search-inv" class="search-box" placeholder="🔍 Buscar pieza por número o ubicación..." oninput="renderInventoryTable()">
+            <table class="modal-table" id="inventory-display-table">
+                <thead>
+                    <tr><th>Org PN</th><th>Ubicación</th><th style="text-align:center; width:120px;">Acciones</th></tr>
+                </thead>
+                <tbody id="inventory-table-body"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="history-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" onclick="closeModal('history-modal')">&times;</span>
+            <h3>📜 Historial de Equipos Completados</h3>
+            <div class="form-container" style="border-left: 4px solid #2ecc71;">
+                <h4 style="margin:0 0 10px 0; color:#2ecc71;">➕ Añadir Equipo Manualmente al Historial</h4>
+                <div class="form-grid">
+                    <input type="text" id="hist-manual-rma" placeholder="Rma No (Obligatorio)">
+                    <input type="text" id="hist-manual-sn" placeholder="Product SN">
+                    <input type="text" id="hist-manual-type" placeholder="Product Type (ej. Notebook)">
+                </div>
+                <button class="save-btn" style="background-color: #2ecc71; margin-top: 5px;" onclick="saveManualHistoryItem()">Añadir al Historial</button>
+            </div>
+            <input type="text" id="search-history" class="search-box" placeholder="🔍 Buscar RMA o SN en el historial..." oninput="renderHistoryTable()">
+            <table class="modal-table">
+                <thead><tr><th>Rma No</th><th>Product SN</th><th>Product Type</th><th>Fecha y Hora</th><th>Acción</th></tr></thead>
+                <tbody id="history-table-body"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, collection, doc, setDoc, updateDoc, onSnapshot, deleteDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyB9txlKftZW0zqUAFd-j1IC55jjTmUMenk",
+            authDomain: "proveedores-fe9eb.firebaseapp.com",
+            projectId: "proveedores-fe9eb",
+            storageBucket: "proveedores-fe9eb.firebasestorage.app",
+            messagingSenderId: "768336194305",
+            appId: "1:768336194305:web:c80b7c1c113ac84542c900"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        const targetColumns = ['Rma No', 'Product SN', 'Product Type', 'Item Status'];
+        const statusMsg = document.getElementById('status-msg');
+        
+        let localFirebaseData = {};
+        let localInventoryData = {};
+        let localHistoryData = {};
+
+        const tableHeader = document.getElementById('table-header');
+        tableHeader.innerHTML = '';
+        [...targetColumns, 'Piezas'].forEach(col => {
+            const th = document.createElement('th');
+            th.textContent = col;
+            tableHeader.appendChild(th);
+        });
+
+        onSnapshot(collection(db, "repair_items"), (querySnapshot) => {
+            localFirebaseData = {};
+            querySnapshot.forEach((docSnap) => { localFirebaseData[docSnap.id] = docSnap.data(); });
+            window.renderMainTable();
+        });
+
+        window.renderMainTable = function() {
+            const tableBody = document.getElementById('table-body');
+            tableBody.innerHTML = '';
+            const searchVal = document.getElementById('search-main').value.trim().toLowerCase();
+
+            Object.keys(localFirebaseData).forEach(rowKey => {
+                const row = localFirebaseData[rowKey];
+                const rmaNo = row['Rma No'] ? String(row['Rma No']).toLowerCase() : '';
+                const prodSn = row['Product SN'] ? String(row['Product SN']).toLowerCase() : '';
+
+                if (rmaNo.includes(searchVal) || prodSn.includes(searchVal)) {
+                    const tr = document.createElement('tr');
+                    targetColumns.forEach(col => {
+                        const td = document.createElement('td');
+                        const value = row[col] !== undefined ? row[col] : '';
+                        if (col === 'Item Status' && String(value).trim().toUpperCase() === 'REPAIR') {
+                            td.innerHTML = `<span class="badge-repair">${value}</span>`;
+                            if (row.wasInHistory) {
+                                td.innerHTML += `<span class="badge-history-warn" title="Este RMA ya figuraba en el historial cuando se cargó">⚠ Ya en historial</span>`;
+                            }
+                        } else {
+                            td.textContent = value;
+                        }
+                        tr.appendChild(td);
+                    });
+
+                    const parts = row.parts || [];
+                    const countParts = parts.length;
+
+                    const allAllocated = countParts > 0 && parts.every(p => String(p.status || '').trim().toUpperCase() === 'ALLOCATED');
+                    tr.classList.add(allAllocated ? 'row-allocated' : 'row-pending-alloc');
+
+                    const tdActions = document.createElement('td');
+                    tdActions.innerHTML = `
+                        <button id="view-btn-${rowKey}" class="action-btn btn-view" onclick="openViewModal('${rowKey}')">👁️ Ver Piezas (${countParts})</button>
+                        <button class="action-btn btn-delete-row" title="Borrar esta línea manualmente (no se añade al historial)" onclick="deleteEquipmentManually('${rowKey}')">🗑️ Borrar</button>
+                    `;
+                    tr.appendChild(tdActions);
+                    tableBody.appendChild(tr);
+                }
+            });
+            updateMainStatusBar();
+        };
+
+        onSnapshot(collection(db, "inventory_items"), (querySnapshot) => {
+            localInventoryData = {};
+            querySnapshot.forEach((docSnap) => { localInventoryData[docSnap.id] = docSnap.data(); });
+            if (document.getElementById('inventory-modal').style.display === 'block') window.renderInventoryTable();
+        });
+
+        onSnapshot(collection(db, "history_items"), (querySnapshot) => {
+            localHistoryData = {};
+            querySnapshot.forEach((docSnap) => { localHistoryData[docSnap.id] = docSnap.data(); });
+            if (document.getElementById('history-modal').style.display === 'block') window.renderHistoryTable();
+        });
+
+        function updateMainStatusBar() {
+            statusMsg.style.color = '#27ae60';
+            statusMsg.textContent = `✓ Conectado a Firebase Cloud.`;
+        }
+
+        document.getElementById('update-file-input').addEventListener('change', async function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            statusMsg.style.color = '#333';
+            statusMsg.textContent = 'Procesando archivo e importando elementos REPAIR...';
+
+            try {
+                const historySnapshot = await getDocs(collection(db, "history_items"));
+                const historicalRmas = new Set();
+                historySnapshot.forEach(docSnap => {
+                    const data = docSnap.data();
+                    if(data['Rma No']) historicalRmas.add(String(data['Rma No']).trim().toUpperCase());
+                });
+
+                const reader = new FileReader();
+                reader.onload = async function(e) {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                        const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+
+                        if (jsonData.length === 0) {
+                            statusMsg.style.color = '#e67e22';
+                            statusMsg.textContent = 'El archivo Excel seleccionado está vacío.';
+                            return;
+                        }
+
+                        const uploadPromises = [];
+                        let loadedCount = 0;
+                        const alreadyInHistoryList = [];
+
+                        jsonData.forEach(row => {
+                            const rmaNo = String(row['Rma No'] || row['RMA_NO'] || row['Rma_No'] || '').trim();
+                            const prodSn = String(row['Product SN'] || row['PRODUCT_SN'] || row['Product_SN'] || '').trim();
+                            const prodType = String(row['Product Type'] || row['PRODUCT_TYPE'] || row['Product_Type'] || '').trim();
+                            const itemStatus = String(row['Item Status'] || row['ITEM_STATUS'] || row['Item_Status'] || '').trim();
+
+                            if (rmaNo && itemStatus.toUpperCase() === 'REPAIR') {
+                                const wasInHistory = historicalRmas.has(rmaNo.toUpperCase());
+                                if (wasInHistory) alreadyInHistoryList.push(rmaNo);
+
+                                const rowKey = `${rmaNo}_${prodSn}`.replace(/\s+/g, '');
+                                const docRef = doc(db, "repair_items", rowKey);
+                                
+                                uploadPromises.push(setDoc(docRef, {
+                                    'Rma No': rmaNo,
+                                    'Product SN': prodSn,
+                                    'Product Type': prodType,
+                                    'Item Status': 'REPAIR',
+                                    'parts': localFirebaseData[rowKey]?.parts || [], 
+                                    'wasInHistory': wasInHistory,
+                                    'timestamp': Date.now()
+                                }, { merge: true }));
+
+                                loadedCount++;
+                            }
+                        });
+
+                        if (uploadPromises.length === 0) {
+                            statusMsg.style.color = '#e67e22';
+                            statusMsg.textContent = 'No se encontraron filas válidas con Item Status = REPAIR.';
+                            return;
+                        }
+
+                        await Promise.all(uploadPromises);
+                        let successMsg = `¡Carga Exitosa! Se importaron ${loadedCount} equipos.`;
+                        if (alreadyInHistoryList.length > 0) {
+                            successMsg += `\n\n⚠️ Atención: ${alreadyInHistoryList.length} equipo(s) ya figuraban en el historial pero se cargaron igualmente (marcados en la tabla):\n${alreadyInHistoryList.join(', ')}`;
+                        }
+                        alert(successMsg);
+                    } catch (error) {
+                        console.error(error);
+                        statusMsg.style.color = '#e74c3c';
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            } catch (error) {
+                console.error(error);
+            } finally {
+                document.getElementById('update-file-input').value = '';
+            }
+        });
+
+        document.getElementById('parts-file-input').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const activeRows = Object.keys(localFirebaseData);
+            if (activeRows.length === 0) {
+                alert("⚠️ Primero debes tener equipos cargados en la página principal.");
+                document.getElementById('parts-file-input').value = '';
+                return;
+            }
+
+            statusMsg.style.color = '#333';
+            statusMsg.textContent = 'Procesando archivo KBO y cruzando piezas...';
+
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+
+                    const excelPartsMap = {};
+                    jsonData.forEach(row => {
+                        const rmaNoExcel = String(row['RMA_NO'] || row['Rma No'] || row['Rma_No'] || '').trim().toUpperCase();
+                        const partNo = String(row['NEW_PART_NO'] || row['Part No#'] || row['PART_NO'] || row['New PN'] || '').trim();
+                        const partDesc = String(row['NEW_PART_DESC'] || row['Part Name'] || row['PART_DESC'] || row['New PN Desc'] || '').trim();
+                        const partStatus = String(row['STATUS'] || row['Status'] || row['PART_STATUS'] || row['PARTS_STATUS'] || row['Part Status'] || row['NEW_PART_STATUS'] || row['ITEM_STATUS'] || '').trim();
+
+                        if (rmaNoExcel && partNo) {
+                            if (!excelPartsMap[rmaNoExcel]) excelPartsMap[rmaNoExcel] = [];
+                            excelPartsMap[rmaNoExcel].push({ pn: partNo, desc: partDesc, status: partStatus, checked: false });
+                        }
+                    });
+
+                    const operationPromises = [];
+                    let partsUpdatedCount = 0;
+                    let equipmentsMatchedCount = 0;
+                    let equipmentsWithoutPartsCount = 0;
+
+                    activeRows.forEach(rowKey => {
+                        const equipment = localFirebaseData[rowKey];
+                        const mainRma = String(equipment['Rma No'] || '').trim().toUpperCase();
+                        const docRef = doc(db, "repair_items", rowKey);
+
+                        if (mainRma && excelPartsMap[mainRma]) {
+                            const newPartsMatched = excelPartsMap[mainRma];
+                            operationPromises.push(updateDoc(docRef, { parts: newPartsMatched }));
+                            partsUpdatedCount += newPartsMatched.length;
+                            equipmentsMatchedCount++;
+                        } else {
+                            equipmentsWithoutPartsCount++;
+                        }
+                    });
+
+                    await Promise.all(operationPromises);
+                    alert(`Proceso KBO finalizado:\n• Equipos con piezas asignadas: ${equipmentsMatchedCount} (${partsUpdatedCount} piezas)\n• Equipos sin piezas en el archivo KBO: ${equipmentsWithoutPartsCount} (se mantienen en la lista, marcados en naranja)\n\nNo se ha borrado ninguna línea de la lista principal.`);
+                } catch (err) {
+                    console.error(err);
+                } finally {
+                    document.getElementById('parts-file-input').value = '';
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        window.openViewModal = function(rowKey) {
+            const rowData = localFirebaseData[rowKey];
+            const rmaNo = rowData ? rowData['Rma No'] : 'N/A';
+            const parts = (rowData && rowData.parts) ? rowData.parts : [];
+            
+            const modalTitle = document.getElementById('modal-title');
+            const modalBody = document.getElementById('modal-body');
+            modalTitle.textContent = `Piezas Registradas - RMA No: ${rmaNo}`;
+            
+            if (parts.length === 0) {
+                modalBody.innerHTML = `
+                    <div style="padding: 10px 0;">
+                        <p style="margin: 0 0 10px 0; font-weight: bold; color: #e67e22;">⚠️ No hay piezas vinculadas. Pega el bloque de texto del informe a continuación:</p>
+                        <textarea id="manual-parts-parser-input" placeholder="Pega el bloque aquí...\nEjemplo:\nAction\n1\n1\nALLOCATED\nWEB_APPLY\nY\nCID\nManually\n18200-16001600\nOLED 16' WUXGA..."></textarea>
+                        <div style="margin-top: 15px; display: flex; gap: 10px;">
+                            <button class="save-btn" style="margin:0; background-color: #3498db;" onclick="parseAndSaveManualBlocks('${rowKey}')">⚙️ Procesar y Cargar Piezas</button>
+                            <button class="ready-btn" style="float:none; background-color:#95a5a6;" onclick="moveEquipmentToHistory('${rowKey}')">🚀 Forzar Listo (Sin Piezas)</button>
+                        </div>
+                    </div>`;
+            } else {
+                const allChecked = parts.length > 0 && parts.every(p => p.checked === true);
+                const readyBtnHtml = allChecked ? `<button class="ready-btn" onclick="moveEquipmentToHistory('${rowKey}')">🚀 Marcar como Listo</button>` : ``;
+
+                let tableHtml = `
+                    <div style="margin-bottom:15px; overflow:hidden;">
+                        ${readyBtnHtml}
+                        <button class="print-btn" onclick="printSingleEquipmentParts()">𖨾 Imprimir Listado</button>
+                    </div>
+                    <table class="modal-table">
+                        <thead>
+                            <tr><th>NEW_PART_NO (Org PN)</th><th>NEW_PART_DESC</th><th>Ubicación</th><th style="text-align: center;">Recepción</th></tr>
+                        </thead>
+                        <tbody>
+                `;
+                
+                parts.forEach((p, index) => {
+                    const isChecked = p.checked || false;
+                    const btnClass = isChecked ? 'btn-status-green' : 'btn-status-red';
+                    const btnText = isChecked ? '✓ Recibido' : '✗ Pendiente';
+                    
+                    const invRecord = localInventoryData[p.pn];
+                    const locationText = (invRecord && invRecord.location && invRecord.location.trim() !== "") 
+                        ? `<span class="badge-location">${invRecord.location}</span>` 
+                        : `<span class="badge-unlocated">Sin ubicar</span>`;
+
+                    tableHtml += `
+                        <tr>
+                            <td style="font-family: monospace; font-weight: bold; color: #2980b9;">${p.pn}</td>
+                            <td>${p.desc}</td>
+                            <td>${locationText}</td>
+                            <td style="text-align: center;">
+                                <button class="action-btn ${btnClass}" onclick="togglePartStatus('${rowKey}', ${index})">${btnText}</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+                tableHtml += `</tbody></table>`;
+                modalBody.innerHTML = tableHtml;
+            }
+            document.getElementById('parts-modal').style.display = 'block';
+        };
+
+        window.parseAndSaveManualBlocks = async function(rowKey) {
+            const rawText = document.getElementById('manual-parts-parser-input').value;
+            if(!rawText.trim()) return alert("El cuadro de texto está vacío.");
+
+            const lines = rawText.split('\n').map(l => l.trim());
+            const parsedParts = [];
+
+            const statusTokens = new Set(["ALLOCATED", "PENDING", "IN_TRANSIT", "SHIPPED", "BACKORDER"]);
+            const skipTokens = new Set([
+                "ALLOCATED", "PENDING", "IN_TRANSIT", "SHIPPED", "BACKORDER",
+                "WEB_APPLY", "Y", "N", "CID", "SYS", "OOW", "MANUALLY", ""
+            ]);
+
+            for (let i = 0; i < lines.length; i++) {
+                if (lines[i] === "1" && i + 1 < lines.length && /^\d+$/.test(lines[i+1])) {
+                    
+                    let checkIndex = i + 2;
+                    let detectedStatus = "";
+                    while (checkIndex < lines.length && skipTokens.has(lines[checkIndex].toUpperCase())) {
+                        if (statusTokens.has(lines[checkIndex].toUpperCase()) && !detectedStatus) {
+                            detectedStatus = lines[checkIndex].toUpperCase();
+                        }
+                        checkIndex++;
+                    }
+
+                    if (checkIndex + 1 < lines.length) {
+                        const potentialPN = lines[checkIndex];
+                        const potentialDesc = lines[checkIndex + 1];
+
+                        if (potentialPN.length > 3 && /\d/.test(potentialPN) && !potentialPN.includes("No") && !potentialPN.includes("ID")) {
+                            parsedParts.push({
+                                pn: potentialPN,
+                                desc: potentialDesc,
+                                status: detectedStatus,
+                                checked: false
+                            });
+                            i = checkIndex + 1;
+                        }
+                    }
+                }
+            }
+
+            if (parsedParts.length === 0) {
+                alert("❌ No se pudo reconocer ninguna pieza en ese formato. Verifica el texto copiado.");
+                return;
+            }
+
+            try {
+                const docRef = doc(db, "repair_items", rowKey);
+                await updateDoc(docRef, { parts: parsedParts });
+                alert(`✓ ¡Éxito! Se reconocieron y guardaron ${parsedParts.length} piezas.`);
+                window.openViewModal(rowKey);
+            } catch (e) {
+                console.error(e);
+                alert("Error al intentar guardar las piezas en la nube.");
+            }
+        };
+
+        window.closeModal = function(id) { 
+            document.getElementById(id).style.display = 'none'; 
+            clearAllPrintTargets();
+        };
+        
+        window.openInventoryModal = function() {
+            document.getElementById('inventory-modal').style.display = 'block';
+            window.cancelInventoryEdit();
+            window.renderInventoryTable();
+        };
+
+        window.openHistoryModal = function() {
+            document.getElementById('history-modal').style.display = 'block';
+            document.getElementById('hist-manual-rma').value = '';
+            document.getElementById('hist-manual-sn').value = '';
+            document.getElementById('hist-manual-type').value = '';
+            window.renderHistoryTable();
+        };
+
+        window.printSingleEquipmentParts = function() {
+            clearAllPrintTargets();
+            document.getElementById('parts-modal').classList.add('print-active-target');
+            window.print();
+        };
+
+        window.printMainEquipmentList = function() {
+            clearAllPrintTargets();
+            const printContainer = document.getElementById('print-main-container');
+            const searchVal = document.getElementById('search-main').value.trim().toLowerCase();
+            printContainer.innerHTML = '';
+
+            let htmlContent = `<h2 style="text-align:center; margin-bottom:20px; color:#2c3e50; font-family:sans-serif;">Listado de Equipos y Preparación de Piezas</h2>`;
+            let counter = 0;
+
+            Object.keys(localFirebaseData).forEach(rowKey => {
+                const row = localFirebaseData[rowKey];
+                const rmaNo = row['Rma No'] ? String(row['Rma No']) : '';
+                const prodSn = row['Product SN'] ? String(row['Product SN']) : '';
+                const prodType = row['Product Type'] ? String(row['Product Type']) : '';
+
+                if (rmaNo.toLowerCase().includes(searchVal) || prodSn.toLowerCase().includes(searchVal)) {
+                    counter++;
+                    htmlContent += `
+                        <div class="print-item-block">
+                            <div class="print-item-header">
+                                <strong>#${counter} | RMA:</strong> ${rmaNo} | <strong>SN:</strong> ${prodSn} | <strong>Tipo:</strong> ${prodType}
+                            </div>
+                    `;
+
+                    const parts = row.parts || [];
+                    if (parts.length === 0) {
+                        htmlContent += `<p style="font-style:italic; font-size:0.9em; margin: 5px 0 0 0;">No contiene piezas registradas.</p>`;
+                    } else {
+                        htmlContent += `<table class="print-parts-list"><thead><tr><th>Org PN</th><th>Descripción Pieza</th><th>Ubicación</th><th>Estado</th></tr></thead><tbody>`;
+                        parts.forEach(p => {
+                            const invRecord = localInventoryData[p.pn];
+                            const loc = (invRecord && invRecord.location && invRecord.location.trim() !== "") ? invRecord.location : "Sin ubicar";
+                            htmlContent += `<tr><td>${p.pn}</td><td>${p.desc}</td><td><strong>[ ${loc} ]</strong></td><td>${p.checked ? "✓ OK" : "✗ Pend"}</td></tr>`;
+                        });
+                        htmlContent += `</tbody></table>`;
+                    }
+                    htmlContent += `</div>`;
+                }
+            });
+
+            printContainer.innerHTML = htmlContent;
+            printContainer.style.display = 'block';
+            printContainer.classList.add('print-active-target');
+            window.print();
+        };
+
+        window.printInventoryFilteredList = function() {
+            clearAllPrintTargets();
+            const printContainer = document.getElementById('print-inventory-container');
+            const searchVal = document.getElementById('search-inv').value.toLowerCase();
+            printContainer.innerHTML = '';
+
+            let htmlContent = `<h2 style="text-align:center; margin-bottom:5px;">Reporte Maestro de Inventario</h2><table class="modal-table"><thead><tr><th>Org PN</th><th>Ubicación</th></tr></thead><tbody>`;
+            Object.keys(localInventoryData).sort().forEach(key => {
+                const item = localInventoryData[key];
+                if(item.pn.toLowerCase().includes(searchVal) || (item.location && item.location.toLowerCase().includes(searchVal))) {
+                    htmlContent += `<tr><td>${item.pn}</td><td>${item.location || 'Sin ubicación'}</td></tr>`;
+                }
+            });
+            htmlContent += `</tbody></table>`;
+            printContainer.innerHTML = htmlContent;
+            printContainer.style.display = 'block';
+            printContainer.classList.add('print-active-target');
+            window.print();
+        };
+
+        function clearAllPrintTargets() {
+            document.querySelectorAll('.print-active-target').forEach(el => { el.classList.remove('print-active-target'); el.style.display = ''; });
+        }
+
+        window.togglePartStatus = async function(rowKey, index) {
+            const rowData = localFirebaseData[rowKey];
+            rowData.parts[index].checked = !(rowData.parts[index].checked || false);
+            await updateDoc(doc(db, "repair_items", rowKey), { parts: rowData.parts });
+            window.openViewModal(rowKey);
+        };
+
+        window.deleteEquipmentManually = async function(rowKey) {
+            const rowData = localFirebaseData[rowKey];
+            const rmaLabel = rowData ? rowData['Rma No'] : rowKey;
+            if (!confirm(`¿Borrar manualmente la línea del RMA ${rmaLabel}?\n\nEsta acción NO añade el equipo al historial, simplemente lo elimina de la pantalla principal.`)) return;
+            await deleteDoc(doc(db, "repair_items", rowKey));
+        };
+
+        window.moveEquipmentToHistory = async function(rowKey) {
+            if(!confirm("¿Enviar este equipo al historial? Se quitará de la pantalla principal.")) return;
+            const rowData = localFirebaseData[rowKey];
+            await setDoc(doc(db, "history_items", rowKey), { ...rowData, completedAt: Date.now() });
+            await deleteDoc(doc(db, "repair_items", rowKey));
+            window.closeModal('parts-modal');
+        };
+
+        window.saveManualHistoryItem = async function() {
+            const rmaNo = document.getElementById('hist-manual-rma').value.trim();
+            const prodSn = document.getElementById('hist-manual-sn').value.trim();
+            const prodType = document.getElementById('hist-manual-type').value.trim();
+            if (!rmaNo) return alert("Rma No es obligatorio.");
+            const rowKey = `MANUAL_${rmaNo}_${prodSn || 'MANUAL'}`.replace(/\s+/g, '');
+            await setDoc(doc(db, "history_items", rowKey), { 'Rma No': rmaNo, 'Product SN': prodSn || 'N/A', 'Product Type': prodType || 'Manual Log', 'Item Status': 'COMPLETED_MANUAL', 'parts': [], 'completedAt': Date.now() });
+            alert("✓ Registrado en historial.");
+            document.getElementById('hist-manual-rma').value = '';
+            document.getElementById('hist-manual-sn').value = '';
+            document.getElementById('hist-manual-type').value = '';
+        };
+
+        window.saveInventoryItem = async function() {
+            const pn = document.getElementById('inv-pn').value.trim();
+            const locName = document.getElementById('inv-location').value.trim();
+            if(!pn) return alert("Org PN es obligatorio.");
+            await setDoc(doc(db, "inventory_items", pn), { pn: pn, location: locName });
+            window.cancelInventoryEdit();
+        };
+
+        window.saveBulkInventory = async function() {
+            const locName = document.getElementById('bulk-inv-location').value.trim();
+            const bulkText = document.getElementById('bulk-inv-pns').value.trim();
+            if (!locName || !bulkText) return alert("Faltan datos.");
+            const uniquePns = [...new Set(bulkText.split(/[,\n]/).map(pn => pn.trim()).filter(pn => pn.length > 0))];
+            const promises = uniquePns.map(pn => setDoc(doc(db, "inventory_items", pn), { pn: pn, location: locName }, { merge: true }));
+            await Promise.all(promises);
+            alert("✓ Vinculación masiva completada.");
+            document.getElementById('bulk-inv-location').value = '';
+            document.getElementById('bulk-inv-pns').value = '';
+        };
+
+        window.renderInventoryTable = function() {
+            const tbody = document.getElementById('inventory-table-body');
+            const searchVal = document.getElementById('search-inv').value.toLowerCase();
+            tbody.innerHTML = '';
+            Object.keys(localInventoryData).sort().forEach(key => {
+                const item = localInventoryData[key];
+                if(item.pn.toLowerCase().includes(searchVal) || (item.location && item.location.toLowerCase().includes(searchVal))) {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `<td>${item.pn}</td><td>${item.location || 'Sin ubicación'}</td>
+                        <td style="text-align:center;">
+                            <button class="action-btn" style="background-color:#f39c12; color:white;" onclick="editInventoryItem('${item.pn}')">✏️</button>
+                            <button class="action-btn" style="background-color:#e74c3c; color:white;" onclick="deleteInventoryItem('${item.pn}')">🗑️</button>
+                        </td>`;
+                    tbody.appendChild(tr);
+                }
+            });
+        };
+
+        window.editInventoryItem = function(pnKey) {
+            const item = localInventoryData[pnKey];
+            document.getElementById('inv-pn').value = item.pn;
+            document.getElementById('inv-pn').disabled = true;
+            document.getElementById('inv-location').value = item.location || '';
+            document.getElementById('form-inv-title').textContent = "✏ Modificar Ubicación";
+            document.getElementById('btn-save-inv').textContent = "Actualizar Cambios";
+            document.getElementById('btn-cancel-edit').style.display = 'inline-block';
+        };
+
+        window.cancelInventoryEdit = function() {
+            document.getElementById('inv-pn').value = '';
+            document.getElementById('inv-pn').disabled = false;
+            document.getElementById('inv-location').value = '';
+            document.getElementById('form-inv-title').textContent = "Añadir nueva pieza";
+            document.getElementById('btn-save-inv').textContent = "Guardar en Inventario";
+            document.getElementById('btn-cancel-edit').style.display = 'none';
+        };
+
+        window.deleteInventoryItem = async function(pnKey) {
+            if(confirm(`¿Eliminar la pieza ${pnKey}?`)) await deleteDoc(doc(db, "inventory_items", pnKey));
+        };
+
+        window.exportInventoryBackup = function() {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(localInventoryData, null, 2));
+            const dlAnchor = document.createElement('a');
+            dlAnchor.setAttribute("href", dataStr);
+            dlAnchor.setAttribute("download", `backup_inventario.json`);
+            dlAnchor.click();
+        };
+
+        window.importInventoryBackup = function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                const importedData = JSON.parse(e.target.result);
+                const promises = Object.keys(importedData).map(key => setDoc(doc(db, "inventory_items", importedData[key].pn), { pn: importedData[key].pn, location: importedData[key].location || "" }));
+                await Promise.all(promises);
+                alert("✓ Respaldo importado.");
+            };
+            reader.readAsText(file);
+        };
+
+        window.renderHistoryTable = function() {
+            const tbody = document.getElementById('history-table-body');
+            tbody.innerHTML = '';
+            const searchVal = document.getElementById('search-history').value.trim().toLowerCase();
+            const filtered = Object.keys(localHistoryData).filter(key => {
+                const item = localHistoryData[key];
+                return (item['Rma No'] && String(item['Rma No']).toLowerCase().includes(searchVal)) || (item['Product SN'] && String(item['Product SN']).toLowerCase().includes(searchVal));
+            });
+            filtered.forEach(key => {
+                const item = localHistoryData[key];
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>${item['Rma No']}</td><td>${item['Product SN']}</td><td>${item['Product Type']}</td><td>${item.completedAt ? new Date(item.completedAt).toLocaleString() : 'N/A'}</td>
+                    <td style="text-align:center;">
+                        <button class="action-btn" style="background-color:#e74c3c; color:white;" title="Borrar del historial" onclick="deleteHistoryItem('${key}')">🗑️</button>
+                    </td>`;
+                tbody.appendChild(tr);
+            });
+        };
+
+        window.deleteHistoryItem = async function(rowKey) {
+            if(!confirm("¿Borrar esta línea del historial? Esta acción no se puede deshacer.")) return;
+            await deleteDoc(doc(db, "history_items", rowKey));
+        };
+
+        window.onclick = function(event) { if (event.target.classList.contains('modal')) closeModal(event.target.id); };
+    </script>
+</body>
+</html>
