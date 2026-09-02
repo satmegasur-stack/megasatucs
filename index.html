@@ -935,6 +935,136 @@
         .settings-user-pass input.pass-edit-input:focus { outline: none; border-color: var(--primary-color); }
         .settings-user-pass .pass-edit-save { color: #1a8a3c; }
         .settings-user-pass .pass-edit-cancel { color: #c0392b; }
+
+        /* ══════════════════════════════════════════
+           TABLAS CON SCROLL HORIZONTAL EN PANTALLAS PEQUEÑAS
+        ══════════════════════════════════════════ */
+        .table-responsive {
+            width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch;
+        }
+
+        /* ══════════════════════════════════════════
+           RESPONSIVE: TABLETS (≤ 1024px)
+        ══════════════════════════════════════════ */
+        @media (max-width: 1024px) {
+            .rma-board { grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 10px; }
+            .modal-overlay { padding: 24px 12px; }
+        }
+
+        /* ══════════════════════════════════════════
+           RESPONSIVE: TABLETS EN VERTICAL / PANTALLAS MEDIAS (≤ 900px)
+        ══════════════════════════════════════════ */
+        @media (max-width: 900px) {
+            .rma-board { grid-template-columns: 1fr 1fr; }
+
+            body { padding: 10px; }
+            .main-container { max-width: 100%; padding: 14px; }
+            .data-card { padding: 16px; }
+
+            .header { flex-direction: column; align-items: stretch; }
+            .header > div { width: 100%; }
+            .header-right { flex-wrap: wrap; margin-left: 0; }
+            .header-right, .header > div[style*="display: flex"] { justify-content: center; }
+
+            .file-label,
+            #delegaciones-button, #recogidas-button, #recortar-button,
+            #plantilla-button, #transporte-button, #incidencias-button,
+            #rma-tracking-button, #settings-button, #ucs-button {
+                flex: 1 1 auto; text-align: center; font-size: 0.85rem; padding: 9px 10px;
+            }
+
+            .data-wrapper { flex-direction: column; }
+            .data-section { min-width: 100%; }
+        }
+
+        /* ══════════════════════════════════════════
+           RESPONSIVE: MÓVILES EN HORIZONTAL / TABLETS PEQUEÑAS (≤ 700px)
+        ══════════════════════════════════════════ */
+        @media (max-width: 700px) {
+            /* Modales a pantalla casi completa, más fáciles de usar con el dedo */
+            .modal-overlay { padding: 10px; align-items: flex-start; }
+            .modal-box { max-width: 100%; width: 100%; max-height: 95vh; border-radius: 8px; }
+            .modal-header { padding: 12px 14px; }
+            .modal-header h2 { font-size: 1.05rem; }
+            .modal-body { padding: 14px; }
+
+            /* Formularios y buscadores del panel de Transporte */
+            .tp-header { flex-direction: column; align-items: stretch; }
+            .tp-header-actions { flex-direction: column; align-items: stretch; width: 100%; }
+            .tp-search-wrap, #tp-search-input, .correos-label, #tp-add-btn { width: 100%; }
+            #tp-search-input { box-sizing: border-box; }
+
+            /* ── Seguimiento RMA: formulario, buscador y filtros ── */
+            .rma-add-form { flex-direction: column; align-items: stretch; }
+            .rma-add-form input[type="text"] { width: 100%; box-sizing: border-box; }
+            .rma-add-btn { width: 100%; padding: 10px 14px; }
+
+            .rma-search-wrap { flex-wrap: wrap; }
+            #rma-search-input { width: 100%; box-sizing: border-box; flex: 1 1 100%; }
+            .rma-refresh-btn { flex: 1 1 auto; justify-content: center; }
+            .rma-last-update { flex: 1 1 100%; text-align: center; }
+
+            .rma-phase-filter { gap: 8px 10px; padding: 8px; }
+            .rma-phase-filter label { font-size: 0.78rem; }
+
+            .rma-board { grid-template-columns: 1fr 1fr; gap: 8px; }
+            .rma-column { padding: 8px; }
+            .rma-move-btn, .rma-info-btn { padding: 6px 9px; font-size: 0.75rem; min-height: 30px; }
+
+            /* Tablas: texto y padding más compactos */
+            #transport-table, .stats-table { font-size: 0.78rem; }
+            #transport-table thead th, #transport-table tbody td,
+            .stats-table th, .stats-table td { padding: 6px 8px; }
+
+            .stats-filters { flex-direction: column; align-items: stretch; }
+            .stats-filter-field, #stats-search-rma { width: 100%; box-sizing: border-box; }
+            .stats-summary-card { min-width: 100%; }
+
+            .settings-add-form { flex-direction: column; align-items: stretch; }
+            .settings-add-form input, .settings-add-form select { width: 100%; box-sizing: border-box; }
+
+            .inc-add-form { flex-direction: column; align-items: stretch; }
+            .inc-rma-input, .inc-desc-input { width: 100%; box-sizing: border-box; }
+
+            /* Evita el zoom automático de iOS en inputs (mínimo 16px) */
+            input[type="text"], input[type="email"], input[type="password"],
+            input[type="date"], textarea, select { font-size: 16px; }
+        }
+
+        /* ══════════════════════════════════════════
+           RESPONSIVE: MÓVILES (≤ 560px)
+        ══════════════════════════════════════════ */
+        @media (max-width: 560px) {
+            .rma-board { grid-template-columns: 1fr; }
+
+            .main-container { padding: 10px; }
+            .data-card { padding: 12px; border-radius: 8px; }
+
+            .header-right { gap: 6px; }
+            .file-label,
+            #delegaciones-button, #recogidas-button, #recortar-button,
+            #plantilla-button, #transporte-button, #incidencias-button,
+            #rma-tracking-button, #settings-button, #ucs-button {
+                font-size: 0.8rem; padding: 8px 8px;
+            }
+
+            .modal-header h2 { font-size: 0.98rem; }
+            .modal-header h2 i { font-size: 0.9rem; }
+
+            .rma-card { padding: 7px 8px; }
+            .rma-card-num { font-size: 0.82rem; }
+            .rma-card-actions { gap: 4px; }
+            .rma-move-btn, .rma-info-btn { flex: 1 1 auto; text-align: center; justify-content: center; }
+
+            .rma-historial-row { flex-direction: column; align-items: flex-start; gap: 4px; }
+            .rma-historial-rma { min-width: 0; }
+            .rma-historial-user { min-width: 0; width: 100%; }
+
+            .settings-user-row { flex-direction: column; align-items: stretch; }
+            .settings-user-email { min-width: 0; }
+
+            .login-box { padding: 26px 20px; }
+        }
     </style>
 </head>
 <body>
@@ -1065,6 +1195,7 @@
 
         <div id="tp-empty" class="tp-empty">No hay registros de transporte todavía.</div>
 
+        <div class="table-responsive">
         <table id="transport-table" style="display: none;">
             <thead>
                 <tr>
@@ -1080,6 +1211,7 @@
             </thead>
             <tbody id="tp-tbody"></tbody>
         </table>
+        </div>
     </div>
 
     <!-- ══════════════════════════════════════════
@@ -1361,17 +1493,21 @@
                 </div>
 
                 <h3 class="stats-section-title"><i class="fas fa-layer-group"></i> Tiempo medio por fase</h3>
+                <div class="table-responsive">
                 <table class="stats-table">
                     <thead><tr><th>Fase</th><th>Tiempo medio</th><th>Nº tramos</th></tr></thead>
                     <tbody id="stats-phase-tbody"></tbody>
                 </table>
+                </div>
                 <div id="stats-phase-empty" class="inc-empty" style="display:none;">No hay datos de fases con los filtros aplicados.</div>
 
                 <h3 class="stats-section-title"><i class="fas fa-list"></i> Detalle por RMA</h3>
+                <div class="table-responsive">
                 <table class="stats-table">
                     <thead><tr><th>RMA</th><th>Garantía</th><th>Inicio</th><th>Última fase</th><th>Estado</th><th>Duración</th></tr></thead>
                     <tbody id="stats-rma-tbody"></tbody>
                 </table>
+                </div>
                 <div id="stats-rma-empty" class="inc-empty" style="display:none;">No se han encontrado RMAs con los filtros aplicados.</div>
             </div>
         </div>
