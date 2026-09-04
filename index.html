@@ -242,28 +242,6 @@
             }
         };
 
-        /* Merge de 3 vías para Seguimiento RMA (mismo mecanismo que Transporte):
-           evita que una pestaña con datos desactualizados (p.ej. abierta desde el
-           día anterior, o que perdió la sincronización en tiempo real sin avisar)
-           sobrescriba y "resucite" RMAs ya movidos/borrados por otros usuarios. */
-        window._fbMergeRmaTracking = async (localRows, baseRows) => {
-            try {
-                let mergedResult = null;
-                await runTransaction(db, async (tx) => {
-                    const ref = doc(db, 'rma_tracking', 'entries');
-                    const snap = await tx.get(ref);
-                    const theirsRows = snap.exists() ? (snap.data().rows || []) : [];
-                    const merged = mergeTransportArrays(baseRows, localRows, theirsRows);
-                    tx.set(ref, { rows: merged });
-                    mergedResult = merged;
-                });
-                return mergedResult;
-            } catch (e) {
-                console.error('Firebase merge rma_tracking error:', e);
-                return null;
-            }
-        };
-
         /* Escucha en tiempo real los cambios de fase del Seguimiento RMA: cualquier
            usuario que mueva un RMA de columna lo actualiza al instante para todos
            los que tengan el panel abierto (sin depender de recargas ni intervalos). */
@@ -2833,24 +2811,12 @@ document.addEventListener('DOMContentLoaded', () => {
         return entry;
     }
 
-    /* Última versión conocida de Firestore (la "base" para el merge de 3 vías).
-       Se actualiza al cargar, al recibir un cambio en tiempo real, o tras guardar
-       (el merge devuelve el resultado final). Esto evita que una pestaña con datos
-       desactualizados sobrescriba y "resucite" RMAs ya movidos o borrados por otros. */
-    let lastSyncedRmaRows = [];
-
     async function saveRmaTracking() {
-        if (!window._fbMergeRmaTracking) return;
-        const merged = await window._fbMergeRmaTracking(rmaTracking, lastSyncedRmaRows);
-        if (merged) {
-            rmaTracking = merged.map(e => migrateRma(e));
-            lastSyncedRmaRows = JSON.parse(JSON.stringify(merged));
-        }
+        if (window._fbSetRmaTracking) await window._fbSetRmaTracking(rmaTracking);
     }
 
     async function loadRmaTracking() {
         const raw = window._fbGetRmaTracking ? await window._fbGetRmaTracking() : [];
-        lastSyncedRmaRows = JSON.parse(JSON.stringify(raw));
         rmaTracking = raw.map(e => migrateRma(e));
         renderRmaTracking();
         rmaUpdateLastRefreshLabel();
@@ -2864,7 +2830,6 @@ document.addEventListener('DOMContentLoaded', () => {
     function startRmaRealtimeSync() {
         if (!window._fbListenRmaTracking) { loadRmaTracking(); return; }
         rmaRealtimeUnsub = window._fbListenRmaTracking((rows) => {
-            lastSyncedRmaRows = JSON.parse(JSON.stringify(rows));
             rmaTracking = rows.map(e => migrateRma(e));
             renderRmaTracking();
             rmaUpdateLastRefreshLabel();
@@ -2955,17 +2920,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* Añade un nuevo RMA a la fase "Pendiente Recibir" — el cronómetro no arranca hasta llegar a Pretest.
-       Bloquea números de RMA duplicados (comparación sin distinguir mayúsculas/espacios). */
+    /* Añade un nuevo RMA a la fase "Pendiente Recibir" — el cronómetro no arranca hasta llegar a Pretest */
     async function addRmaTrackingEntry(rma) {
         const value = String(rma ?? '').trim();
         if (!value) return;
-        const normalized = value.toLowerCase();
-        const existing = rmaTracking.find(e => String(e.rma).trim().toLowerCase() === normalized);
-        if (existing) {
-            showNotification(`Ese RMA ya existe (fase: ${existing.fase})`);
-            return;
-        }
         rmaTracking.push({
             id: genId('rma'), rma: value, fase: 'Pendiente Recibir', fecha: nowStr(), usuario: currentUserEmail,
             info: [], cronometro: { running: false, accumulatedMs: 0, startedAt: null }
@@ -3149,11 +3107,11 @@ document.addEventListener('DOMContentLoaded', () => {
         return ms;
     }
 
-    /* Cada 8 horas acumuladas cuentan como 1 "día" */
+    /* Cada 24 horas acumuladas cuentan como 1 "día" */
     function rmaCronoFormat(ms) {
         let totalSeconds = Math.floor(Math.max(0, ms) / 1000);
-        const days = Math.floor(totalSeconds / (8 * 3600));
-        totalSeconds -= days * 8 * 3600;
+        const days = Math.floor(totalSeconds / (24 * 3600));
+        totalSeconds -= days * 24 * 3600;
         const hours = Math.floor(totalSeconds / 3600);
         totalSeconds -= hours * 3600;
         const minutes = Math.floor(totalSeconds / 60);
