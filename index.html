@@ -727,6 +727,11 @@
             font-size: 0.85rem; padding: 2px 4px; border-radius: 4px; flex-shrink: 0;
         }
         .rma-card-del:hover { color: var(--danger-color); background: rgba(0,0,0,0.06); }
+        .rma-card-finalize {
+            background: none; border: none; color: var(--success-color); cursor: pointer;
+            font-size: 0.95rem; padding: 2px 4px; border-radius: 4px; flex-shrink: 0;
+        }
+        .rma-card-finalize:hover { background: rgba(40,167,69,0.15); }
         .rma-card-date { font-size: 0.7rem; color: var(--secondary-color); margin-top: 2px; }
         .rma-card-actions { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 7px; }
         .rma-move-btn {
@@ -955,6 +960,7 @@
             font-weight: 700; font-size: 0.75rem; padding: 2px 9px; border-radius: 10px;
             background: var(--border-color); color: var(--text-color); white-space: nowrap;
         }
+        .rma-historial-fase.finalizado { background: var(--success-color); color: #fff; }
         .rma-historial-user { color: var(--text-color); flex: 1; min-width: 160px; }
         .rma-historial-fecha { color: var(--secondary-color); font-size: 0.78rem; white-space: nowrap; }
 
@@ -1433,12 +1439,12 @@
     <div id="rma-motivo-modal-overlay" class="modal-overlay">
         <div class="modal-box">
             <div class="modal-header">
-                <h2><i class="fas fa-triangle-exclamation"></i> Motivo del cambio a "En espera"</h2>
+                <h2><i class="fas fa-triangle-exclamation"></i> Motivo del cambio a "<span id="rma-motivo-header-phase">En espera</span>"</h2>
                 <button id="rma-motivo-close-btn" class="modal-close-btn" title="Cerrar"><i class="fas fa-times"></i></button>
             </div>
             <div class="modal-body">
                 <p style="margin:0 0 10px; color: var(--secondary-color); font-size: 0.9rem;">
-                    Indica por qué el RMA <strong id="rma-motivo-title"></strong> vuelve a "En espera". Este dato es obligatorio y quedará registrado en la Info del RMA.
+                    Indica por qué el RMA <strong id="rma-motivo-title"></strong> vuelve a "<span id="rma-motivo-phase-inline">En espera</span>". Este dato es obligatorio y quedará registrado en la Info del RMA.
                 </p>
                 <textarea id="rma-motivo-text" rows="3" placeholder="Escribe el motivo..."></textarea>
                 <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
@@ -1691,6 +1697,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const rmaMotivoConfirmBtn   = document.getElementById('rma-motivo-confirm-btn');
     const rmaMotivoTitleEl      = document.getElementById('rma-motivo-title');
     const rmaMotivoTextEl       = document.getElementById('rma-motivo-text');
+    const rmaMotivoHeaderPhaseEl = document.getElementById('rma-motivo-header-phase');
+    const rmaMotivoPhaseInlineEl = document.getElementById('rma-motivo-phase-inline');
     let rmaMotivoPendingId    = null;
     let rmaMotivoPendingPhase = null;
 
@@ -2593,12 +2601,24 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     /* ── Toggle transport panel ── */
+    let dashboardDisplayBeforeTransport = null;
     transporteButton.addEventListener('click', () => {
-        hideDashboard();
         const panel = document.getElementById('transport-panel');
         const visible = panel.style.display !== 'none';
-        panel.style.display = visible ? 'none' : 'block';
-        if (!visible) setTimeout(() => panel.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+        if (!visible) {
+            /* Se abre el panel: recordamos cómo estaba el dashboard para poder
+               devolverlo exactamente a ese estado al cerrar el panel. */
+            dashboardDisplayBeforeTransport = noDataMessageEl ? noDataMessageEl.style.display : null;
+            hideDashboard();
+            panel.style.display = 'block';
+            setTimeout(() => panel.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+        } else {
+            /* Se cierra el panel: el dashboard vuelve a aparecer tal como estaba antes. */
+            panel.style.display = 'none';
+            if (noDataMessageEl) {
+                noDataMessageEl.style.display = dashboardDisplayBeforeTransport || 'block';
+            }
+        }
     });
 
     /* ── Al pulsar "Cargar archivo", el dashboard inicial desaparece ── */
@@ -3075,6 +3095,12 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        /* Si vuelve de "En espera" a Pretest, hay que añadir una nota obligatoriamente */
+        if (newPhase === 'Pretest' && entry.fase === 'En espera') {
+            openRmaMotivoModal(id, newPhase);
+            return;
+        }
+
         await doRmaMovePhase(id, newPhase, null);
     };
 
@@ -3169,7 +3195,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (motivo) {
             if (!Array.isArray(entry.info)) entry.info = [];
-            entry.info.push({ id: genId('rmainfo'), fecha: todayISO(), texto: `Motivo cambio a "En espera": ${motivo}`, usuario: currentUserEmail });
+            entry.info.push({ id: genId('rmainfo'), fecha: todayISO(), texto: `Motivo cambio a "${newPhase}": ${motivo}`, usuario: currentUserEmail });
         }
 
         await saveRmaTracking();
@@ -3184,6 +3210,8 @@ document.addEventListener('DOMContentLoaded', () => {
         rmaMotivoPendingId    = id;
         rmaMotivoPendingPhase = newPhase;
         rmaMotivoTitleEl.textContent = entry.rma || '';
+        if (rmaMotivoHeaderPhaseEl) rmaMotivoHeaderPhaseEl.textContent = newPhase;
+        if (rmaMotivoPhaseInlineEl) rmaMotivoPhaseInlineEl.textContent = newPhase;
         rmaMotivoTextEl.value = '';
         rmaMotivoModalOverlay.classList.add('show');
         setTimeout(() => rmaMotivoTextEl.focus(), 50);
@@ -3222,6 +3250,21 @@ document.addEventListener('DOMContentLoaded', () => {
         await saveRmaTracking();
         renderRmaTracking();
         showNotification('RMA eliminado del seguimiento');
+    };
+
+    /* Finaliza un RMA que está en fase "Final Test": se quita del tablero de
+       seguimiento y queda registrado en el historial como "Finalizado". */
+    window.rmaFinalizeEntry = async function(id) {
+        const idx = rmaTracking.findIndex(e => e.id === id);
+        if (idx === -1) return;
+        const entry = rmaTracking[idx];
+        if (entry.fase !== 'Final Test') return;
+        if (!confirm(`¿Finalizar el RMA ${entry.rma}? Pasará al historial como Finalizado.`)) return;
+        rmaTracking.splice(idx, 1);
+        await saveRmaTracking();
+        await addRmaHistorial(entry.rma, 'Finalizado', currentUserEmail);
+        renderRmaTracking();
+        showNotification(`RMA ${entry.rma} finalizado`);
     };
 
     /* ── Cronómetro por RMA ── */
@@ -3263,17 +3306,20 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (entry.fase === 'Pretest') {
             actions = `<button class="rma-move-btn to-espera" onclick="rmaMovePhase('${entry.id}','En espera')">→ En espera</button>`;
         } else if (entry.fase === 'En espera') {
-            actions = `<button class="rma-move-btn to-repair" onclick="rmaMovePhase('${entry.id}','Repair')">→ Repair</button>`;
+            actions = `<button class="rma-move-btn to-pretest" onclick="rmaMovePhase('${entry.id}','Pretest')">← Pretest</button>
+                       <button class="rma-move-btn to-repair" onclick="rmaMovePhase('${entry.id}','Repair')">→ Repair</button>`;
         } else if (entry.fase === 'Repair') {
             actions = `<button class="rma-move-btn to-final" onclick="rmaMovePhase('${entry.id}','Final Test')">→ Final Test</button>
                        <button class="rma-move-btn to-espera" onclick="rmaMovePhase('${entry.id}','En espera')">→ En espera</button>`;
         } else if (entry.fase === 'Final Test') {
             actions = `<button class="rma-move-btn to-espera" onclick="rmaMovePhase('${entry.id}','En espera')">→ En espera</button>`;
         }
-        const canDelete = isAdmin || entry.fase === 'Final Test';
-        const delBtn = canDelete
-            ? `<button class="rma-card-del" title="Quitar del seguimiento" onclick="rmaDeleteEntry('${entry.id}')"><i class="fas fa-trash"></i></button>`
-            : '';
+        let delBtn = '';
+        if (entry.fase === 'Final Test') {
+            delBtn = `<button class="rma-card-finalize" title="Finalizar RMA" onclick="rmaFinalizeEntry('${entry.id}')"><i class="fas fa-check"></i></button>`;
+        } else if (isAdmin) {
+            delBtn = `<button class="rma-card-del" title="Quitar del seguimiento" onclick="rmaDeleteEntry('${entry.id}')"><i class="fas fa-trash"></i></button>`;
+        }
         const infoCount = (entry.info || []).length;
         const infoBtn = `<button class="rma-info-btn" title="Ver / añadir información del RMA" onclick="rmaOpenInfo('${entry.id}')">
                 <i class="fas fa-circle-info"></i> Info${infoCount ? `<span class="rma-info-count">${infoCount}</span>` : ''}
@@ -3501,7 +3547,7 @@ document.addEventListener('DOMContentLoaded', () => {
         list.innerHTML = items.map(e => `
             <div class="rma-historial-row">
                 <span class="rma-historial-rma">${esc(e.rma)}</span>
-                <span class="rma-historial-fase">${esc(e.fase)}</span>
+                <span class="rma-historial-fase${e.fase === 'Finalizado' ? ' finalizado' : ''}">${esc(e.fase)}</span>
                 <span class="rma-historial-user"><i class="fas fa-user"></i> ${esc(e.usuario || 'desconocido')}</span>
                 <span class="rma-historial-fecha">${esc(e.fecha)}</span>
             </div>`).join('');
@@ -3576,7 +3622,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const firstDate = parseFechaHora(moves[0].fecha);
             const lastMove  = moves[moves.length - 1];
             const lastDate  = parseFechaHora(lastMove.fecha);
-            const completed = lastMove.fase === 'Final Test';
+            const completed = lastMove.fase === 'Final Test' || lastMove.fase === 'Finalizado';
             rmaTotals.push({
                 rma, start: firstDate, end: lastDate,
                 durationMs: (firstDate && lastDate) ? (lastDate - firstDate) : null,
