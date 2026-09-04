@@ -353,7 +353,71 @@
         /* ── Main data layout ── */
         .data-wrapper { display: flex; gap: 20px; flex-wrap: wrap; }
         .data-section { flex: 1; min-width: 300px; }
-        .no-data-message { text-align: center; color: var(--secondary-color); font-style: italic; }
+        .no-data-message { text-align: left; color: var(--text-color); font-style: normal; }
+
+        /* ── Dashboard (pantalla inicial) ── */
+        .dashboard-wrapper {
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; align-items: start;
+        }
+        .dash-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+        .dashboard-title {
+            margin: 0 0 4px 0; font-size: 0.92rem; color: var(--primary-color);
+            display: flex; align-items: center; gap: 8px;
+        }
+        .dash-title-warning { color: var(--warning-color); }
+        .dash-title-danger  { color: var(--danger-color); }
+        .dash-title-garantia { color: #6f42c1; }
+        .dash-stat-card {
+            background: #f8f9fa; border: 1px solid var(--border-color); border-radius: 8px;
+            padding: 14px 16px;
+        }
+        .dash-stat-label { font-size: 0.72rem; color: var(--secondary-color); font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; }
+        .dash-stat-value { font-size: 1.5rem; font-weight: 700; color: var(--primary-color); margin-top: 4px; font-family: monospace; }
+
+        /* ── Gráfica circular de fases ── */
+        .dash-chart-wrap { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+        .dash-pie {
+            position: relative; width: 160px; height: 160px; border-radius: 50%;
+            background: conic-gradient(var(--border-color) 0deg 360deg);
+            flex-shrink: 0;
+        }
+        .dash-pie-center {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 96px; height: 96px; border-radius: 50%; background: var(--card-background);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            box-shadow: inset 0 0 0 1px var(--border-color);
+        }
+        .dash-pie-total { font-size: 1.35rem; font-weight: 700; color: var(--text-color); font-family: monospace; line-height: 1.1; }
+        .dash-pie-total-label { font-size: 0.68rem; color: var(--secondary-color); text-transform: uppercase; letter-spacing: 0.03em; }
+        .dash-pie-legend { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+        .dash-pie-legend-item { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; }
+        .dash-pie-legend-dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
+        .dash-pie-legend-name { flex: 1; color: var(--text-color); }
+        .dash-pie-legend-count { font-weight: 700; font-family: monospace; color: var(--text-color); }
+        .dash-pie-empty { text-align: center; color: var(--secondary-color); font-style: italic; font-size: 0.85rem; }
+
+        .dash-list { display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; }
+        .dash-list-empty { text-align: center; color: var(--secondary-color); font-style: italic; padding: 10px 0; font-size: 0.85rem; }
+        .dash-list-item {
+            display: flex; align-items: center; justify-content: space-between; gap: 10px;
+            background: #f8f9fa; border: 1px solid var(--border-color); border-radius: 6px;
+            padding: 7px 10px; font-size: 0.85rem;
+        }
+        .dash-item-rma { font-weight: 700; color: var(--text-color); }
+        .dash-item-fase { color: var(--secondary-color); font-size: 0.78rem; flex: 1; text-align: center; }
+        .dash-item-dias { font-weight: 700; color: var(--danger-color); font-family: monospace; white-space: nowrap; }
+        .dash-item-eye {
+            background: none; border: none; cursor: pointer; color: var(--secondary-color);
+            font-size: 0.9rem; padding: 2px 4px; border-radius: 4px; flex-shrink: 0;
+        }
+        .dash-item-eye:hover { color: #6f42c1; background: #ece5f7; }
+
+        @media (max-width: 1100px) {
+            .dashboard-wrapper { grid-template-columns: repeat(2, 1fr); }
+        }
+        @media (max-width: 620px) {
+            .dashboard-wrapper { grid-template-columns: 1fr; }
+        }
         .data-section h2 { color: var(--primary-color); margin-top: 0; border-bottom: 2px solid var(--primary-color); padding-bottom: 5px; }
         .data-section p { margin: 5px 0; cursor: pointer; padding: 5px; }
         .data-section p:hover { background-color: #f1f1f1; border-radius: 4px; }
@@ -1128,7 +1192,51 @@
     <!-- ── MAIN DATA CARD ── -->
     <div id="data-container" class="data-card">
         <div id="no-data-message" class="no-data-message">
-            <p>Por favor, carga un archivo .xlsx para comenzar.</p>
+            <div class="dashboard-wrapper">
+                <div class="dash-col dash-col-summary">
+                    <h3 class="dashboard-title"><i class="fas fa-chart-line"></i> Resumen del mes</h3>
+                    <div class="dash-stat-card">
+                        <div class="dash-stat-label">Tiempo medio (mes actual)</div>
+                        <div class="dash-stat-value" id="dash-avg-time">—</div>
+                    </div>
+                    <div class="dash-stat-card">
+                        <div class="dash-stat-label">Equipos finalizados (mes actual)</div>
+                        <div class="dash-stat-value" id="dash-finalizados">0</div>
+                    </div>
+                    <div class="dash-stat-card">
+                        <div class="dash-stat-label">En reparación (mes actual)</div>
+                        <div class="dash-stat-value" id="dash-en-reparacion">0</div>
+                    </div>
+                </div>
+                <div class="dash-col dash-col-chart">
+                    <h3 class="dashboard-title"><i class="fas fa-chart-pie"></i> Estado actual (Seguimiento RMA)</h3>
+                    <div class="dash-chart-wrap">
+                        <div class="dash-pie" id="dash-pie">
+                            <div class="dash-pie-center">
+                                <span class="dash-pie-total" id="dash-pie-total">0</span>
+                                <span class="dash-pie-total-label">RMAs</span>
+                            </div>
+                        </div>
+                        <div class="dash-pie-legend" id="dash-pie-legend"></div>
+                    </div>
+                </div>
+                <div class="dash-col dash-col-list">
+                    <h3 class="dashboard-title dash-title-warning"><i class="fas fa-triangle-exclamation"></i> Más de 2 días en fase (excl. Pendiente Recibir / En espera)</h3>
+                    <div class="dash-list" id="dash-list-2dias">
+                        <div class="dash-list-empty">Cargando…</div>
+                    </div>
+                    <h3 class="dashboard-title dash-title-danger"><i class="fas fa-hourglass-half"></i> Más de 30 días en "En espera"</h3>
+                    <div class="dash-list" id="dash-list-30dias">
+                        <div class="dash-list-empty">Cargando…</div>
+                    </div>
+                </div>
+                <div class="dash-col dash-col-list">
+                    <h3 class="dashboard-title dash-title-garantia"><i class="fas fa-shield-halved"></i> Nuevos equipos en garantía</h3>
+                    <div class="dash-list" id="dash-list-garantia">
+                        <div class="dash-list-empty">Cargando…</div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="data-wrapper" id="data-wrapper" style="display: none;">
@@ -1600,6 +1708,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const statsPhaseEmpty     = document.getElementById('stats-phase-empty');
     const statsRmaTbody       = document.getElementById('stats-rma-tbody');
     const statsRmaEmpty       = document.getElementById('stats-rma-empty');
+
+    const noDataMessageEl     = document.getElementById('no-data-message');
+    const dashAvgTimeEl       = document.getElementById('dash-avg-time');
+    const dashFinalizadosEl   = document.getElementById('dash-finalizados');
+    const dashEnReparacionEl  = document.getElementById('dash-en-reparacion');
+    const dashList2diasEl     = document.getElementById('dash-list-2dias');
+    const dashList30diasEl    = document.getElementById('dash-list-30dias');
+    const dashPieEl           = document.getElementById('dash-pie');
+    const dashPieTotalEl      = document.getElementById('dash-pie-total');
+    const dashPieLegendEl     = document.getElementById('dash-pie-legend');
+    const dashListGarantiaEl  = document.getElementById('dash-list-garantia');
 
     const loginScreen        = document.getElementById('login-screen');
     const loginEmailInput    = document.getElementById('login-email');
@@ -2475,11 +2594,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /* ── Toggle transport panel ── */
     transporteButton.addEventListener('click', () => {
+        hideDashboard();
         const panel = document.getElementById('transport-panel');
         const visible = panel.style.display !== 'none';
         panel.style.display = visible ? 'none' : 'block';
         if (!visible) setTimeout(() => panel.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
     });
+
+    /* ── Al pulsar "Cargar archivo", el dashboard inicial desaparece ── */
+    const fileLabelEl = document.querySelector('.file-label');
+    if (fileLabelEl) fileLabelEl.addEventListener('click', hideDashboard);
 
     /* ════════════════════════════════════════
        DELETE / PROCESAR button
@@ -2904,6 +3028,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function loadRmaHistorial() {
         rmaHistorial = window._fbGetRmaHistorial ? await window._fbGetRmaHistorial() : [];
+        renderDashboard();
     }
 
     async function addRmaHistorial(rma, fase, usuario) {
@@ -3177,6 +3302,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderRmaTracking() {
         updateRmaTrackingBadge();
+        renderDashboard();
         const cols = {
             'Pendiente Recibir': { list: document.getElementById('rma-list-pendiente'), count: document.getElementById('rma-count-pendiente') },
             'Pretest':    { list: document.getElementById('rma-list-pretest'),  count: document.getElementById('rma-count-pretest') },
@@ -3466,6 +3592,172 @@ document.addEventListener('DOMContentLoaded', () => {
         const map = {};
         rmaTracking.forEach(e => { if (e.garantia) map[e.rma] = e.garantia; });
         return map;
+    }
+
+    /* ════════════════════════════════════════
+       DASHBOARD (pantalla inicial, antes de cargar archivo)
+    ════════════════════════════════════════ */
+    /* Límites del mes en curso: desde el día 1 a las 00:00 hasta este instante.
+       Al llegar al día 1 del mes siguiente, estos límites se recalculan solos
+       (se piden en cada renderDashboard()), así que las estadísticas "empiezan
+       de cero" automáticamente. */
+    function getCurrentMonthRange() {
+        const now = new Date();
+        const start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+        return { start, end: now };
+    }
+
+    function isInCurrentMonth(date, range) {
+        if (!date) return false;
+        return date >= range.start && date <= range.end;
+    }
+
+    function hideDashboard() {
+        if (noDataMessageEl) noDataMessageEl.style.display = 'none';
+    }
+
+    /* Colores por fase, iguales a los usados en el tablero de Seguimiento RMA */
+    const RMA_PHASE_COLORS = {
+        'Pendiente Recibir': '#8a6d3b',
+        'Pretest': '#6c757d',
+        'En espera': '#fd7e14',
+        'Repair': '#6f42c1',
+        'Final Test': '#28a745'
+    };
+
+    /* Fases que cuentan como "en reparación" en tiempo real */
+    const EN_REPARACION_PHASES = ['Pretest', 'Repair', 'Final Test'];
+
+    function renderDashboardPie() {
+        if (!dashPieEl) return;
+        const counts = RMA_PHASES.map(phase => ({
+            phase,
+            count: rmaTracking.filter(e => e.fase === phase).length,
+            color: RMA_PHASE_COLORS[phase] || '#999'
+        }));
+        const total = counts.reduce((s, c) => s + c.count, 0);
+        dashPieTotalEl.textContent = total;
+
+        if (total === 0) {
+            dashPieEl.style.background = 'var(--border-color)';
+            dashPieLegendEl.innerHTML = '<div class="dash-pie-empty">Sin RMAs en seguimiento</div>';
+            return;
+        }
+
+        let acc = 0;
+        const segments = counts
+            .filter(c => c.count > 0)
+            .map(c => {
+                const startDeg = (acc / total) * 360;
+                acc += c.count;
+                const endDeg = (acc / total) * 360;
+                return `${c.color} ${startDeg}deg ${endDeg}deg`;
+            });
+        dashPieEl.style.background = `conic-gradient(${segments.join(', ')})`;
+
+        dashPieLegendEl.innerHTML = counts
+            .filter(c => c.count > 0)
+            .map(c => `<div class="dash-pie-legend-item">
+                <span class="dash-pie-legend-dot" style="background:${c.color}"></span>
+                <span class="dash-pie-legend-name">${esc(c.phase)}</span>
+                <span class="dash-pie-legend-count">${c.count}</span>
+            </div>`).join('');
+    }
+
+    /* Descarta un aviso de "Nuevos equipos en garantía": ese RMA concreto no
+       volverá a aparecer en esa lista (se guarda en el propio RMA y se
+       sincroniza con Firebase para todos los usuarios) */
+    window.dismissGarantiaAlert = async function(id) {
+        const idx = rmaTracking.findIndex(e => e.id === id);
+        if (idx === -1) return;
+        rmaTracking[idx].garantiaDismissed = true;
+        await saveRmaTracking();
+        renderDashboard();
+    };
+
+    function renderDashboard() {
+        if (!dashAvgTimeEl) return;
+
+        const monthRange = getCurrentMonthRange();
+        const now = Date.now();
+
+        /* ── Tiempo medio (mes actual): tiempo cronometrado real de cada RMA
+           que hay ahora mismo en seguimiento (incluye los que están en
+           Final Test), dividido entre el número total de RMAs activos ── */
+        if (rmaTracking.length) {
+            const totalCronoMs = rmaTracking.reduce((s, e) => s + rmaCronoElapsedMs(e), 0);
+            dashAvgTimeEl.textContent = formatDuration(totalCronoMs / rmaTracking.length);
+        } else {
+            dashAvgTimeEl.textContent = '—';
+        }
+
+        /* ── Equipos finalizados (mes actual, desde el 01/09/2026 incluido) ── */
+        const { rmaTotals } = computeRmaStatsData();
+        const completedThisMonth = rmaTotals.filter(t => t.completed && t.durationMs != null && isInCurrentMonth(t.end, monthRange));
+        dashFinalizadosEl.textContent = completedThisMonth.length;
+
+        /* ── En reparación: equipos en tiempo real en fase Pretest, Repair o Final Test ── */
+        const enReparacion = rmaTracking.filter(e => EN_REPARACION_PHASES.includes(e.fase)).length;
+        dashEnReparacionEl.textContent = enReparacion;
+
+        /* ── Gráfica circular: distribución actual por fase ── */
+        renderDashboardPie();
+
+        /* ── Listado: más de 2 días en cualquier fase (excepto Pendiente Recibir / En espera) ── */
+        const list2dias = rmaTracking
+            .filter(e => e.fase !== 'Pendiente Recibir' && e.fase !== 'En espera')
+            .map(e => {
+                const d = parseFechaHora(e.fecha);
+                const dias = d ? (now - d.getTime()) / 86400000 : 0;
+                return { rma: e.rma, fase: e.fase, dias };
+            })
+            .filter(e => e.dias > 2)
+            .sort((a, b) => b.dias - a.dias);
+
+        dashList2diasEl.innerHTML = list2dias.length
+            ? list2dias.map(e => `<div class="dash-list-item"><span class="dash-item-rma">${esc(e.rma)}</span><span class="dash-item-fase">${esc(e.fase)}</span><span class="dash-item-dias">${Math.floor(e.dias)}d</span></div>`).join('')
+            : '<div class="dash-list-empty">Ningún equipo supera los 2 días</div>';
+
+        /* ── Listado: más de 30 días en "En espera" ── */
+        const list30dias = rmaTracking
+            .filter(e => e.fase === 'En espera')
+            .map(e => {
+                const d = parseFechaHora(e.fecha);
+                const dias = d ? (now - d.getTime()) / 86400000 : 0;
+                return { rma: e.rma, dias };
+            })
+            .filter(e => e.dias > 30)
+            .sort((a, b) => b.dias - a.dias);
+
+        dashList30diasEl.innerHTML = list30dias.length
+            ? list30dias.map(e => `<div class="dash-list-item"><span class="dash-item-rma">${esc(e.rma)}</span><span class="dash-item-dias">${Math.floor(e.dias)}d</span></div>`).join('')
+            : '<div class="dash-list-empty">Ningún equipo supera los 30 días en espera</div>';
+
+        /* ── Listado: nuevos equipos en garantía con más de 30 minutos en "En espera" ── */
+        const listGarantia = rmaTracking
+            .filter(e => e.garantia === 'G' && e.fase === 'En espera' && !e.garantiaDismissed)
+            .map(e => {
+                const d = parseFechaHora(e.fecha);
+                const minutos = d ? (now - d.getTime()) / 60000 : 0;
+                return { id: e.id, rma: e.rma, minutos };
+            })
+            .filter(e => e.minutos > 30)
+            .sort((a, b) => b.minutos - a.minutos);
+
+        dashListGarantiaEl.innerHTML = listGarantia.length
+            ? listGarantia.map(e => {
+                const tiempo = e.minutos >= 1440
+                    ? `${Math.floor(e.minutos / 1440)}d`
+                    : e.minutos >= 60
+                        ? `${Math.floor(e.minutos / 60)}h`
+                        : `${Math.floor(e.minutos)}m`;
+                return `<div class="dash-list-item">
+                    <span class="dash-item-rma">${esc(e.rma)}</span>
+                    <span class="dash-item-dias">${tiempo}</span>
+                    <button class="dash-item-eye" title="Descartar aviso" onclick="dismissGarantiaAlert('${e.id}')"><i class="fas fa-eye"></i></button>
+                </div>`;
+            }).join('')
+            : '<div class="dash-list-empty">Ningún equipo en garantía supera los 30 min en espera</div>';
     }
 
     function renderRmaStats() {
