@@ -964,6 +964,29 @@
         .rma-historial-user { color: var(--text-color); flex: 1; min-width: 160px; }
         .rma-historial-fecha { color: var(--secondary-color); font-size: 0.78rem; white-space: nowrap; }
 
+        /* Badge de novedades sobre el icono de actualizar */
+        .rma-updates-badge {
+            position: absolute; top: -4px; right: -4px;
+            background: var(--danger-color, #dc3545); color: #fff;
+            font-size: 0.6rem; font-weight: 700; line-height: 1;
+            padding: 3px 5px; border-radius: 50%;
+            min-width: 8px; text-align: center;
+        }
+
+        /* Modal de novedades del programa */
+        #rma-updates-modal-overlay .modal-box { max-width: 700px; }
+        .rma-updates-list { display: flex; flex-direction: column; gap: 14px; }
+        .rma-update-item {
+            border-left: 3px solid var(--primary-color);
+            padding: 6px 0 6px 14px;
+        }
+        .rma-update-date {
+            font-size: 0.78rem; font-weight: 700; color: var(--primary-color);
+            display: flex; align-items: center; gap: 6px; margin-bottom: 4px;
+        }
+        .rma-update-item ul { margin: 0; padding-left: 18px; }
+        .rma-update-item li { color: var(--text-color); font-size: 0.9rem; margin-bottom: 2px; }
+
         /* ══════════════════════════════════════════
            CONFIGURACIÓN DE USUARIOS
         ══════════════════════════════════════════ */
@@ -1382,6 +1405,10 @@
                 <div style="display:flex; align-items:center; gap:8px;">
                     <button id="rma-stats-btn" class="modal-close-btn" title="Estadísticas (solo administrador)" style="font-size:1rem;"><i class="fas fa-chart-line"></i></button>
                     <button id="rma-history-btn" class="modal-close-btn" title="Historial de fases" style="font-size:1rem;"><i class="fas fa-history"></i></button>
+                    <button id="rma-updates-btn" class="modal-close-btn" title="Novedades del programa" style="font-size:1rem; position:relative;">
+                        <i class="fas fa-arrows-rotate"></i>
+                        <span id="rma-updates-badge" class="rma-updates-badge" style="display:none;"></span>
+                    </button>
                     <button id="rma-close-btn" class="modal-close-btn" title="Cerrar"><i class="fas fa-times"></i></button>
                 </div>
             </div>
@@ -1492,6 +1519,12 @@
                     <button id="rma-info-garantia-g" class="rma-garantia-toggle-btn" onclick="rmaInfoSetGarantia('G')"><span class="rma-garantia-dot g"></span> En garantía</button>
                     <button id="rma-info-garantia-f" class="rma-garantia-toggle-btn" onclick="rmaInfoSetGarantia('F')"><span class="rma-garantia-dot f"></span> Fuera de garantía</button>
                 </div>
+                <div id="rma-info-extensivo-row" class="rma-info-garantia-row" style="display:none;">
+                    <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:400;">
+                        <input type="checkbox" id="rma-info-extensivo-check" onchange="rmaInfoToggleTestExtensivo()">
+                        <span>Test Extensivo <span style="font-weight:400; color:var(--secondary-color); font-size:0.8rem;">(pausa el cronómetro mientras esté en Pretest)</span></span>
+                    </label>
+                </div>
                 <div id="rma-info-empty" class="inc-no-updates">Todavía no hay información registrada.</div>
                 <div id="rma-info-list" class="inc-updates"></div>
                 <div class="inc-add-update" style="margin-top:12px; border-top:2px dashed var(--border-color); padding-top:14px;">
@@ -1519,6 +1552,22 @@
                 </div>
                 <div id="rma-historial-empty" class="inc-empty">No hay movimientos registrados todavía.</div>
                 <div id="rma-historial-list" class="rma-historial-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════
+         NOVEDADES DEL PROGRAMA
+    ══════════════════════════════════════════ -->
+    <div id="rma-updates-modal-overlay" class="modal-overlay">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h2><i class="fas fa-arrows-rotate"></i> Novedades del programa</h2>
+                <button id="rma-updates-close-btn" class="modal-close-btn" title="Cerrar"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body">
+                <div id="rma-updates-empty" class="inc-empty" style="display:none;">No hay novedades registradas todavía.</div>
+                <div id="rma-updates-list" class="rma-updates-list"></div>
             </div>
         </div>
     </div>
@@ -1674,6 +1723,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const rmaHistCloseBtn    = document.getElementById('rma-historial-close-btn');
     const rmaHistSearchInput = document.getElementById('rma-historial-search');
 
+    const rmaUpdatesBtn        = document.getElementById('rma-updates-btn');
+    const rmaUpdatesBadge      = document.getElementById('rma-updates-badge');
+    const rmaUpdatesModalOverlay = document.getElementById('rma-updates-modal-overlay');
+    const rmaUpdatesCloseBtn   = document.getElementById('rma-updates-close-btn');
+    const rmaUpdatesList       = document.getElementById('rma-updates-list');
+    const rmaUpdatesEmpty      = document.getElementById('rma-updates-empty');
+
     const rmaInfoModalOverlay = document.getElementById('rma-info-modal-overlay');
     const rmaInfoCloseBtn    = document.getElementById('rma-info-close-btn');
     const rmaInfoTitleEl     = document.getElementById('rma-info-title');
@@ -1685,6 +1741,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const rmaInfoAddBtn      = document.getElementById('rma-info-add-btn');
     const rmaInfoGarantiaGBtn = document.getElementById('rma-info-garantia-g');
     const rmaInfoGarantiaFBtn = document.getElementById('rma-info-garantia-f');
+    const rmaInfoExtensivoRow   = document.getElementById('rma-info-extensivo-row');
+    const rmaInfoExtensivoCheck = document.getElementById('rma-info-extensivo-check');
 
     const rmaGarantiaModalOverlay = document.getElementById('rma-garantia-modal-overlay');
     const rmaGarantiaCloseBtn     = document.getElementById('rma-garantia-close-btn');
@@ -2468,10 +2526,28 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!confirm('¿Eliminar este registro de transporte?')) return;
         const idx = tpFindIndex(id);
         if (idx === -1) return;
+        const deletedEntry = transportEntries[idx];
         transportEntries.splice(idx, 1);
         await saveTransport();
         renderTransport();
         showNotification('Registro eliminado');
+
+        /* Si ese mismo RMA también está en Seguimiento RMA y sigue en "Pendiente
+           Recibir" (aún no se ha marcado como recibido), preguntar si se quiere
+           eliminar también de allí para mantener ambos paneles sincronizados. */
+        const rmaValue = String(deletedEntry.rma ?? '').trim().toLowerCase();
+        if (rmaValue) {
+            const rmaIdx = rmaTracking.findIndex(e =>
+                String(e.rma ?? '').trim().toLowerCase() === rmaValue && e.fase === 'Pendiente Recibir');
+            if (rmaIdx !== -1) {
+                if (confirm(`El RMA ${deletedEntry.rma} también está en Seguimiento RMA, en "Pendiente Recibir". ¿Quieres eliminarlo también de ahí?`)) {
+                    rmaTracking.splice(rmaIdx, 1);
+                    await saveRmaTracking();
+                    renderRmaTracking();
+                    showNotification(`RMA ${deletedEntry.rma} eliminado también de Seguimiento RMA`);
+                }
+            }
+        }
     };
 
     window.tpTogglePin = async function(id) {
@@ -2935,6 +3011,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (entry.garantia !== 'G' && entry.garantia !== 'F') entry.garantia = null;
         if (!Array.isArray(entry.info)) entry.info = [];
         entry.info.forEach(n => { if (!n.id) n.id = genId('rmainfo'); });
+        if (typeof entry.testExtensivo !== 'boolean') entry.testExtensivo = false;
+        /* El check "Test Extensivo" solo tiene sentido en Pretest: si el RMA ya no está
+           en esa fase (p. ej. se restauró desde datos antiguos), se desmarca. */
+        if (entry.fase !== 'Pretest') entry.testExtensivo = false;
         if (!entry.cronometro || typeof entry.cronometro !== 'object') {
             /* RMAs ya existentes que no tenían cronómetro: se crea arrancado desde ahora
                (pausado si ya está "En espera" o todavía "Pendiente Recibir") */
@@ -3071,7 +3151,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!value) return;
         rmaTracking.push({
             id: genId('rma'), rma: value, fase: 'Pendiente Recibir', fecha: nowStr(), usuario: currentUserEmail,
-            info: [], cronometro: { running: false, accumulatedMs: 0, startedAt: null }
+            info: [], testExtensivo: false, cronometro: { running: false, accumulatedMs: 0, startedAt: null }
         });
         await saveRmaTracking();
         await addRmaHistorial(value, 'Pendiente Recibir', currentUserEmail);
@@ -3154,6 +3234,46 @@ document.addEventListener('DOMContentLoaded', () => {
         showNotification(valor === 'G' ? 'RMA marcado como en garantía' : 'RMA marcado como fuera de garantía');
     };
 
+    /* Check "Test Extensivo" (solo disponible en fase Pretest):
+       - Al marcarlo: pausa el cronómetro del RMA (se guarda el tiempo acumulado).
+       - Al desmarcarlo: reanuda el cronómetro (solo tiene efecto si sigue en Pretest).
+       - Si el RMA cambia de fase, se desmarca automáticamente (ver doRmaMovePhase) y el
+         cronómetro pasa a depender únicamente de la fase nueva. */
+    window.rmaInfoToggleTestExtensivo = async function() {
+        if (!rmaInfoCurrentId) return;
+        const idx = rmaFindIndex(rmaInfoCurrentId);
+        if (idx === -1) return;
+        const entry = rmaTracking[idx];
+        if (entry.fase !== 'Pretest') { renderRmaInfo(); return; }
+
+        if (!entry.cronometro || typeof entry.cronometro !== 'object') {
+            entry.cronometro = { running: false, accumulatedMs: 0, startedAt: null };
+        }
+        const c = entry.cronometro;
+        const activar = !entry.testExtensivo;
+        entry.testExtensivo = activar;
+
+        if (activar) {
+            /* Marcado: pausar el cronómetro */
+            if (c.running) {
+                c.accumulatedMs = rmaCronoElapsedMs(entry);
+                c.running = false;
+                c.startedAt = null;
+            }
+        } else {
+            /* Desmarcado: reanudar el cronómetro (sigue en Pretest) */
+            if (!c.running) {
+                c.running = true;
+                c.startedAt = Date.now();
+            }
+        }
+
+        await saveRmaTracking();
+        renderRmaTracking();
+        renderRmaInfo();
+        showNotification(activar ? 'Test Extensivo activado: cronómetro pausado' : 'Test Extensivo desactivado: cronómetro reanudado');
+    };
+
     async function doRmaMovePhase(id, newPhase, motivo) {
         const idx = rmaTracking.findIndex(e => e.id === id);
         if (idx === -1) return;
@@ -3175,6 +3295,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
         }
+
+        /* Al cambiar de fase se quita automáticamente el check "Test Extensivo": ese check
+           solo aplica mientras el RMA está en Pretest. El cronómetro pasa a depender
+           únicamente de la nueva fase (bloque siguiente). */
+        rmaTracking[idx].testExtensivo = false;
 
         /* Cronómetro automático según fase: en "En espera" se pausa, en el resto continúa/se reanuda */
         const entry = rmaTracking[idx];
@@ -3325,10 +3450,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 <i class="fas fa-circle-info"></i> Info${infoCount ? `<span class="rma-info-count">${infoCount}</span>` : ''}
             </button>`;
         const isRunning = !!(entry.cronometro && entry.cronometro.running);
+        const extensivoBadge = (entry.fase === 'Pretest' && entry.testExtensivo)
+            ? ' <span title="Test Extensivo activo (cronómetro pausado)" style="font-size:0.68rem; font-weight:700; color:var(--secondary-color);"><i class="fas fa-pause"></i> Test Extensivo</span>'
+            : '';
         const cronoHtml = `
             <div class="rma-card-crono">
                 <i class="fas fa-stopwatch"></i>
-                <span class="rma-crono-time${isRunning ? '' : ' paused'}" data-id="${entry.id}">${esc(rmaCronoFormat(rmaCronoElapsedMs(entry)))}</span>
+                <span class="rma-crono-time${isRunning ? '' : ' paused'}" data-id="${entry.id}">${esc(rmaCronoFormat(rmaCronoElapsedMs(entry)))}</span>${extensivoBadge}
             </div>`;
         const garantiaDot = entry.garantia === 'G'
             ? '<span class="rma-garantia-dot g" title="En garantía"></span>'
@@ -3406,6 +3534,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         rmaInfoGarantiaGBtn.classList.toggle('active-g', entry.garantia === 'G');
         rmaInfoGarantiaFBtn.classList.toggle('active-f', entry.garantia === 'F');
+
+        /* El check "Test Extensivo" solo se muestra mientras el RMA está en Pretest */
+        if (entry.fase === 'Pretest') {
+            rmaInfoExtensivoRow.style.display = 'block';
+            rmaInfoExtensivoCheck.checked = !!entry.testExtensivo;
+        } else {
+            rmaInfoExtensivoRow.style.display = 'none';
+            rmaInfoExtensivoCheck.checked = false;
+        }
 
         const notes = (entry.info || []).slice().sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
         if (notes.length === 0) {
@@ -3531,6 +3668,58 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     rmaNewInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') rmaAddBtn.click(); });
 
+    /* ── Novedades del programa ──
+       Registro de cambios realizados en la aplicación. Cada vez que se añada
+       una mejora o corrección, se debe agregar una nueva entrada aquí con la
+       fecha correspondiente (formato AAAA-MM-DD). Se muestran siempre
+       ordenadas de la más reciente a la más antigua. */
+    const RMA_CHANGELOG = [
+        {
+            fecha: '2026-09-09',
+            cambios: [
+                'Al borrar un registro en Panel de Transporte, si ese RMA sigue en "Pendiente Recibir" en Seguimiento RMA, ahora se pregunta si también se quiere eliminar de ahí.',
+                'Añadido el icono de "Novedades del programa" en Seguimiento RMA, con historial de cambios ordenado por fecha más reciente.'
+            ]
+        }
+        // Añadir aquí las próximas entradas, por ejemplo:
+        // { fecha: '2026-09-15', cambios: ['Descripción del cambio 1', 'Descripción del cambio 2'] }
+    ];
+
+    function renderRmaUpdates() {
+        const items = RMA_CHANGELOG.slice().sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
+        if (!items.length) {
+            rmaUpdatesEmpty.style.display = 'block';
+            rmaUpdatesList.innerHTML = '';
+            return;
+        }
+        rmaUpdatesEmpty.style.display = 'none';
+        rmaUpdatesList.innerHTML = items.map(entry => `
+            <div class="rma-update-item">
+                <div class="rma-update-date"><i class="fas fa-calendar-day"></i> ${esc(entry.fecha)}</div>
+                <ul>${(entry.cambios || []).map(c => `<li>${esc(c)}</li>`).join('')}</ul>
+            </div>`).join('');
+    }
+
+    function updateRmaUpdatesBadge() {
+        if (!RMA_CHANGELOG.length) { rmaUpdatesBadge.style.display = 'none'; return; }
+        const latest = RMA_CHANGELOG.slice().sort((a, b) => (a.fecha < b.fecha ? 1 : -1))[0].fecha;
+        const lastSeen = localStorage.getItem('rmaUpdatesLastSeen') || '';
+        rmaUpdatesBadge.style.display = (latest > lastSeen) ? 'block' : 'none';
+    }
+
+    rmaUpdatesBtn.addEventListener('click', () => {
+        rmaUpdatesModalOverlay.classList.add('show');
+        renderRmaUpdates();
+        const latest = RMA_CHANGELOG.slice().sort((a, b) => (a.fecha < b.fecha ? 1 : -1))[0];
+        if (latest) localStorage.setItem('rmaUpdatesLastSeen', latest.fecha);
+        rmaUpdatesBadge.style.display = 'none';
+    });
+    rmaUpdatesCloseBtn.addEventListener('click', () => rmaUpdatesModalOverlay.classList.remove('show'));
+    rmaUpdatesModalOverlay.addEventListener('click', (e) => { if (e.target === rmaUpdatesModalOverlay) rmaUpdatesModalOverlay.classList.remove('show'); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && rmaUpdatesModalOverlay.classList.contains('show')) rmaUpdatesModalOverlay.classList.remove('show'); });
+
+    updateRmaUpdatesBadge();
+
     /* ── Historial de fases RMA ── */
     function renderRmaHistorial() {
         const term  = (rmaHistSearchInput.value || '').trim().toLowerCase();
@@ -3587,6 +3776,12 @@ document.addEventListener('DOMContentLoaded', () => {
         parts.push(`${hours}h`, `${minutes}m`);
         return parts.join(' ');
     }
+
+    /* Las estadísticas de reparación empiezan a contabilizarse a partir del
+       10/09/2026 (incluido). Cualquier RMA finalizado antes de esa fecha no
+       se tiene en cuenta en las estadísticas, aunque siga existiendo en el
+       historial. */
+    const STATS_START_DATE = new Date(2026, 8, 10, 0, 0, 0, 0);
 
     /* Agrupa el historial completo por RMA y calcula tramos (transiciones) y totales por RMA */
     function computeRmaStatsData() {
@@ -3727,20 +3922,29 @@ document.addEventListener('DOMContentLoaded', () => {
         const monthRange = getCurrentMonthRange();
         const now = Date.now();
 
-        /* ── Tiempo medio (mes actual): tiempo cronometrado real de cada RMA
-           que hay ahora mismo en seguimiento (incluye los que están en
-           Final Test), dividido entre el número total de RMAs activos ── */
-        if (rmaTracking.length) {
-            const totalCronoMs = rmaTracking.reduce((s, e) => s + rmaCronoElapsedMs(e), 0);
-            dashAvgTimeEl.textContent = formatDuration(totalCronoMs / rmaTracking.length);
+        /* ── Equipos finalizados (mes actual). Solo cuentan los RMAs finalizados
+           a partir del 10/09/2026 (STATS_START_DATE), tal y como se ha pedido. ── */
+        const { rmaTotals } = computeRmaStatsData();
+        const completedThisMonth = rmaTotals.filter(t => t.completed && t.durationMs != null && t.end && t.end >= STATS_START_DATE && isInCurrentMonth(t.end, monthRange));
+        dashFinalizadosEl.textContent = completedThisMonth.length;
+
+        /* ── Tiempo medio (mes actual): combina el tiempo cronometrado real de
+           cada RMA que hay ahora mismo en seguimiento (activos, incluidos los
+           que están en Final Test) CON la duración real (Pretest → Final Test)
+           de los equipos que ya se han finalizado este mes, tomada de las
+           estadísticas de equipos finalizados. Así el tiempo medio también
+           refleja los equipos que ya salieron del seguimiento y no solo los
+           que siguen activos en este momento. ── */
+        const activeDurations = rmaTracking.map(e => rmaCronoElapsedMs(e));
+        const finalizadosDurations = completedThisMonth.map(t => t.durationMs);
+        const allDurations = activeDurations.concat(finalizadosDurations);
+
+        if (allDurations.length) {
+            const totalMs = allDurations.reduce((s, d) => s + d, 0);
+            dashAvgTimeEl.textContent = formatDuration(totalMs / allDurations.length);
         } else {
             dashAvgTimeEl.textContent = '—';
         }
-
-        /* ── Equipos finalizados (mes actual, desde el 01/09/2026 incluido) ── */
-        const { rmaTotals } = computeRmaStatsData();
-        const completedThisMonth = rmaTotals.filter(t => t.completed && t.durationMs != null && isInCurrentMonth(t.end, monthRange));
-        dashFinalizadosEl.textContent = completedThisMonth.length;
 
         /* ── En reparación: equipos en tiempo real en fase Pretest, Repair o Final Test ── */
         const enReparacion = rmaTracking.filter(e => EN_REPARACION_PHASES.includes(e.fase)).length;
@@ -3813,7 +4017,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const garantiaFilter = statsGarantiaSelect ? statsGarantiaSelect.value : '';
         const garantiaMap = getRmaGarantiaMap();
 
-        const { allPairs, rmaTotals } = computeRmaStatsData();
+        /* Las estadísticas solo deben contar equipos FINALIZADOS (que llegaron
+           a Final Test) y, además, finalizados a partir del 10/09/2026
+           (STATS_START_DATE): los RMAs finalizados antes de esa fecha quedan
+           excluidos de las estadísticas aunque sigan en el historial. Se
+           descartan los RMAs todavía en curso antes de aplicar el resto de
+           filtros (búsqueda, fechas, garantía). */
+        const { allPairs: allPairsRaw, rmaTotals: rmaTotalsRaw } = computeRmaStatsData();
+        const rmaTotals = rmaTotalsRaw.filter(t => t.completed && t.end && t.end >= STATS_START_DATE);
+        const finalizadosSet = new Set(rmaTotals.map(t => t.rma));
+        const allPairs = allPairsRaw.filter(p => finalizadosSet.has(p.rma));
 
         const pairs = allPairs.filter(p => {
             if (term && !String(p.rma).toLowerCase().includes(term)) return false;
