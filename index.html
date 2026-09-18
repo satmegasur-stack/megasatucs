@@ -9,7 +9,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-        import { getFirestore, doc, getDoc, setDoc, onSnapshot, runTransaction } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+        import { getFirestore, doc, getDoc, setDoc, onSnapshot, runTransaction, collection, getDocs } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
         import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, updatePassword, signOut, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
         const firebaseConfig = {
@@ -74,6 +74,38 @@
                 await setDoc(doc(db, 'delegaciones', key), { delegacion, phone });
             } catch (e) {
                 console.error('Firebase set error:', e);
+            }
+        };
+
+        /* Devuelve TODAS las delegaciones registradas en la colección 'delegaciones' */
+        window._fbGetAllDelegaciones = async () => {
+            try {
+                const snap = await getDocs(collection(db, 'delegaciones'));
+                const rows = [];
+                snap.forEach(d => {
+                    const data = d.data() || {};
+                    rows.push({ phone: data.phone || d.id, delegacion: data.delegacion || '' });
+                });
+                return rows;
+            } catch (e) {
+                console.error('Firebase getAll delegaciones error:', e);
+                return [];
+            }
+        };
+
+        /* Restaura (sobrescribe) un conjunto de delegaciones, usado al importar una copia de seguridad */
+        window._fbRestoreDelegaciones = async (rows) => {
+            try {
+                await Promise.all((rows || []).map(r => {
+                    if (!r || !r.phone) return Promise.resolve();
+                    const key = String(r.phone).replace(/\D/g, '');
+                    if (!key) return Promise.resolve();
+                    return setDoc(doc(db, 'delegaciones', key), { delegacion: r.delegacion || '', phone: r.phone });
+                }));
+                return true;
+            } catch (e) {
+                console.error('Firebase restore delegaciones error:', e);
+                return false;
             }
         };
 
@@ -1045,6 +1077,30 @@
         .settings-add-form input:focus, .settings-add-form select:focus { outline: none; border-color: var(--primary-color); }
 
         .settings-users-list { display: flex; flex-direction: column; gap: 8px; }
+
+        .settings-section-divider { border: none; border-top: 2px dashed var(--border-color); margin: 22px 0 18px; }
+        .settings-section-title {
+            margin: 0 0 6px; color: var(--primary-color); font-size: 1rem;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .settings-section-desc { margin: 0 0 12px; font-size: 0.85rem; color: var(--secondary-color); }
+        .settings-backup-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+        .settings-backup-status { margin-top: 10px; font-size: 0.85rem; color: var(--success-color); min-height: 1.1em; }
+        .settings-backup-status.error { color: var(--danger-color); }
+
+        .delegaciones-search-input {
+            width: 100%; box-sizing: border-box; margin-bottom: 14px;
+            border: 1px solid var(--border-color); border-radius: 5px; padding: 9px 10px;
+            font-family: inherit; font-size: 0.9rem; color: var(--text-color);
+        }
+        .delegaciones-search-input:focus { outline: none; border-color: var(--primary-color); }
+        .delegaciones-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+        .delegaciones-table th, .delegaciones-table td {
+            text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border-color);
+        }
+        .delegaciones-table th { color: var(--primary-color); background: #f8f9fa; white-space: nowrap; }
+        .delegaciones-table tbody tr:hover { background: #f4f6f8; }
+
         .settings-user-row {
             display: flex; align-items: center; gap: 10px; padding: 9px 12px;
             border: 1px solid var(--border-color); border-radius: 6px; flex-wrap: wrap;
@@ -1157,6 +1213,8 @@
 
             .settings-add-form { flex-direction: column; align-items: stretch; }
             .settings-add-form input, .settings-add-form select { width: 100%; box-sizing: border-box; }
+            .settings-backup-actions { flex-direction: column; align-items: stretch; }
+            .settings-backup-actions button { width: 100%; box-sizing: border-box; }
 
             .inc-add-form { flex-direction: column; align-items: stretch; }
             .inc-rma-input, .inc-desc-input { width: 100%; box-sizing: border-box; }
@@ -1658,6 +1716,48 @@
                 <div id="settings-error" class="login-error" style="text-align:left;"></div>
                 <div id="settings-empty" class="inc-empty">No hay usuarios adicionales creados todavía.</div>
                 <div id="settings-users-list" class="settings-users-list"></div>
+
+                <div class="settings-section-divider"></div>
+                <div class="settings-section">
+                    <h3 class="settings-section-title"><i class="fas fa-database"></i> Copia de seguridad</h3>
+                    <p class="settings-section-desc">Exporta todos los datos de la aplicación a un archivo Excel, o restáuralos a partir de una copia exportada anteriormente.</p>
+                    <div class="settings-backup-actions">
+                        <button id="backup-export-btn" class="rma-add-btn"><i class="fas fa-file-export"></i> Exportar datos (Excel)</button>
+                        <button id="backup-import-btn" class="rma-add-btn" style="background: var(--primary-color);"><i class="fas fa-file-import"></i> Importar datos (Excel)</button>
+                        <input type="file" id="backup-import-input" accept=".xlsx,.xls" style="display:none;">
+                    </div>
+                    <div id="backup-status" class="settings-backup-status"></div>
+                </div>
+
+                <div class="settings-section-divider"></div>
+                <div class="settings-section">
+                    <h3 class="settings-section-title"><i class="fas fa-code-branch"></i> Configuración Delegación</h3>
+                    <p class="settings-section-desc">Consulta el listado completo de delegaciones registradas en el sistema.</p>
+                    <button id="delegaciones-config-btn" class="rma-add-btn" style="background: var(--primary-color);"><i class="fas fa-list"></i> Ver delegaciones registradas</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════
+         DELEGACIONES REGISTRADAS (listado, solo admin)
+    ══════════════════════════════════════════ -->
+    <div id="delegaciones-list-modal-overlay" class="modal-overlay">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h2><i class="fas fa-code-branch"></i> Delegaciones Registradas</h2>
+                <button id="delegaciones-list-close-btn" class="modal-close-btn" title="Cerrar"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body">
+                <input type="text" id="delegaciones-list-search" placeholder="Buscar por teléfono o delegación..." autocomplete="off" class="delegaciones-search-input">
+                <div id="delegaciones-list-loading" class="inc-empty"><i class="fas fa-spinner fa-spin"></i> Cargando delegaciones...</div>
+                <div id="delegaciones-list-empty" class="inc-empty" style="display:none;">No hay delegaciones registradas todavía.</div>
+                <div id="delegaciones-list-table-wrap" style="overflow-x:auto; display:none;">
+                    <table id="delegaciones-list-table" class="delegaciones-table">
+                        <thead><tr><th>Teléfono</th><th>Delegación</th></tr></thead>
+                        <tbody id="delegaciones-list-tbody"></tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
@@ -2029,6 +2129,21 @@ document.addEventListener('DOMContentLoaded', () => {
     const settingsCreateBtn      = document.getElementById('settings-create-btn');
     const settingsError          = document.getElementById('settings-error');
 
+    const backupExportBtn        = document.getElementById('backup-export-btn');
+    const backupImportBtn        = document.getElementById('backup-import-btn');
+    const backupImportInput      = document.getElementById('backup-import-input');
+    const backupStatus           = document.getElementById('backup-status');
+
+    const delegacionesConfigBtn        = document.getElementById('delegaciones-config-btn');
+    const delegacionesListModalOverlay = document.getElementById('delegaciones-list-modal-overlay');
+    const delegacionesListCloseBtn     = document.getElementById('delegaciones-list-close-btn');
+    const delegacionesListSearch       = document.getElementById('delegaciones-list-search');
+    const delegacionesListLoading      = document.getElementById('delegaciones-list-loading');
+    const delegacionesListEmpty        = document.getElementById('delegaciones-list-empty');
+    const delegacionesListTableWrap    = document.getElementById('delegaciones-list-table-wrap');
+    const delegacionesListTbody        = document.getElementById('delegaciones-list-tbody');
+    let delegacionesListData = []; // caché en memoria de la última carga { phone, delegacion }
+
     let currentData = [];
     let currentIndex = 0;
     let transportEntries = [];   // array of { id, rma, fecha, recogidas[], estados[], motivos[], observaciones, pinned }
@@ -2057,6 +2172,15 @@ document.addEventListener('DOMContentLoaded', () => {
     ════════════════════════════════════════ */
 
     function pad2(n) { return String(n).padStart(2, '0'); }
+
+    function escapeHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
 
     function nowStr() {
         const d = new Date();
@@ -4913,6 +5037,214 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         settingsCreateBtn.disabled = false;
     });
+
+    /* ════════════════════════════════════════
+       COPIA DE SEGURIDAD (exportar / importar)
+    ════════════════════════════════════════ */
+
+    const BACKUP_SHEETS = ['Transporte', 'Incidencias', 'IncidenciasHistorial', 'RmaTracking', 'RmaHistorial', 'RmaContabilidad', 'UserRoles', 'Delegaciones'];
+
+    function setBackupStatus(msg, isError) {
+        backupStatus.textContent = msg || '';
+        backupStatus.classList.toggle('error', !!isError);
+    }
+
+    async function exportBackup() {
+        setBackupStatus('');
+        backupExportBtn.disabled = true;
+        backupExportBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Exportando...';
+        try {
+            const delegacionesRows = window._fbGetAllDelegaciones ? await window._fbGetAllDelegaciones() : [];
+
+            const datasets = {
+                Transporte: transportEntries,
+                Incidencias: incidencias,
+                IncidenciasHistorial: incidenciasHistorial,
+                RmaTracking: rmaTracking,
+                RmaHistorial: rmaHistorial,
+                RmaContabilidad: rmaContabilidad,
+                UserRoles: userRoles,
+                Delegaciones: delegacionesRows
+            };
+
+            /* Excel limita cada celda a 32.767 caracteres: si el JSON de un
+               dataset es más largo, se trocea en varias filas y se reconstruye
+               al importar concatenando todos los trozos en orden. */
+            const CHUNK_SIZE = 30000;
+            const wb = XLSX.utils.book_new();
+            BACKUP_SHEETS.forEach(name => {
+                const json = JSON.stringify(datasets[name] ?? null);
+                const chunks = [];
+                for (let i = 0; i < json.length; i += CHUNK_SIZE) chunks.push(json.slice(i, i + CHUNK_SIZE));
+                if (chunks.length === 0) chunks.push('');
+                const aoa = [['dataset', 'json'], ...chunks.map(c => [name, c])];
+                const ws = XLSX.utils.aoa_to_sheet(aoa);
+                XLSX.utils.book_append_sheet(wb, ws, name);
+            });
+
+            const now = new Date();
+            const fecha = `${now.getFullYear()}${pad2(now.getMonth() + 1)}${pad2(now.getDate())}_${pad2(now.getHours())}${pad2(now.getMinutes())}`;
+            XLSX.writeFile(wb, `copia_seguridad_${fecha}.xlsx`);
+            setBackupStatus('Copia de seguridad exportada correctamente.', false);
+        } catch (e) {
+            console.error('Error exportando copia de seguridad:', e);
+            setBackupStatus('Error al exportar la copia de seguridad.', true);
+        }
+        backupExportBtn.disabled = false;
+        backupExportBtn.innerHTML = '<i class="fas fa-file-export"></i> Exportar datos (Excel)';
+    }
+
+    function readBackupWorkbook(workbook) {
+        const result = {};
+        BACKUP_SHEETS.forEach(name => {
+            const sheet = workbook.Sheets[name];
+            if (!sheet) return;
+            const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+            const dataRows = rows.filter(r => r && r[0] === name && r[1] !== undefined);
+            if (dataRows.length === 0) return;
+            const json = dataRows.map(r => String(r[1])).join('');
+            try {
+                result[name] = JSON.parse(json);
+            } catch (e) {
+                console.error(`No se pudo leer el bloque "${name}" de la copia de seguridad:`, e);
+            }
+        });
+        return result;
+    }
+
+    async function restoreFromBackup(data) {
+        if (Array.isArray(data.Transporte) && window._fbSetTransporte) {
+            await window._fbSetTransporte(data.Transporte);
+            await loadTransport();
+        }
+        if (Array.isArray(data.Incidencias)) {
+            incidencias = data.Incidencias.map(e => migrateIncidencia(e));
+            await saveIncidencias();
+            renderIncidencias();
+        }
+        if (Array.isArray(data.IncidenciasHistorial)) {
+            incidenciasHistorial = data.IncidenciasHistorial;
+            await saveIncidenciasHistorial();
+            renderIncidenciasHistorial();
+        }
+        if (Array.isArray(data.RmaTracking)) {
+            rmaTracking = data.RmaTracking.map(e => migrateRma(e));
+            await saveRmaTracking();
+            renderRmaTracking();
+        }
+        if (Array.isArray(data.RmaHistorial)) {
+            rmaHistorial = data.RmaHistorial;
+            await saveRmaHistorial();
+            renderRmaHistorial();
+        }
+        if (data.RmaContabilidad && typeof data.RmaContabilidad === 'object') {
+            rmaContabilidad.precioGarantia = (typeof data.RmaContabilidad.precioGarantia === 'number') ? data.RmaContabilidad.precioGarantia : null;
+            rmaContabilidad.precioFueraGarantia = (typeof data.RmaContabilidad.precioFueraGarantia === 'number') ? data.RmaContabilidad.precioFueraGarantia : null;
+            rmaContabilidad.historico = Array.isArray(data.RmaContabilidad.historico) ? data.RmaContabilidad.historico : [];
+            rmaContabilidad.beneficioClearedAt = (typeof data.RmaContabilidad.beneficioClearedAt === 'string') ? data.RmaContabilidad.beneficioClearedAt : null;
+            await saveRmaAccounting();
+            fillRmaAccountingForm();
+            renderRmaAccountingBeneficio();
+            renderRmaAccountingHistorico();
+        }
+        if (Array.isArray(data.UserRoles)) {
+            userRoles = data.UserRoles;
+            await saveUserRoles();
+            renderSettingsUsers();
+        }
+        if (Array.isArray(data.Delegaciones) && window._fbRestoreDelegaciones) {
+            await window._fbRestoreDelegaciones(data.Delegaciones);
+        }
+    }
+
+    async function handleBackupImportFile(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        setBackupStatus('');
+
+        if (!confirm('Importar esta copia de seguridad SOBRESCRIBIRÁ los datos actuales de la aplicación (transporte, incidencias, RMAs, contabilidad, usuarios y delegaciones). ¿Deseas continuar?')) {
+            backupImportInput.value = '';
+            return;
+        }
+
+        backupImportBtn.disabled = true;
+        backupImportBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Importando...';
+        try {
+            const buffer = await file.arrayBuffer();
+            const workbook = XLSX.read(buffer, { type: 'array' });
+            const data = readBackupWorkbook(workbook);
+            if (Object.keys(data).length === 0) {
+                setBackupStatus('El archivo no contiene datos de copia de seguridad reconocibles.', true);
+            } else {
+                await restoreFromBackup(data);
+                setBackupStatus('Copia de seguridad importada y restaurada correctamente.', false);
+                showNotification('Copia de seguridad restaurada correctamente');
+            }
+        } catch (e) {
+            console.error('Error importando copia de seguridad:', e);
+            setBackupStatus('Error al importar el archivo. Comprueba que es una copia de seguridad válida.', true);
+        }
+        backupImportBtn.disabled = false;
+        backupImportBtn.innerHTML = '<i class="fas fa-file-import"></i> Importar datos (Excel)';
+        backupImportInput.value = '';
+    }
+
+    backupExportBtn.addEventListener('click', exportBackup);
+    backupImportBtn.addEventListener('click', () => backupImportInput.click());
+    backupImportInput.addEventListener('change', handleBackupImportFile);
+
+    /* ════════════════════════════════════════
+       CONFIGURACIÓN DELEGACIÓN – listado de delegaciones registradas
+    ════════════════════════════════════════ */
+
+    function renderDelegacionesList() {
+        const term = delegacionesListSearch.value.trim().toLowerCase();
+        const filtered = term
+            ? delegacionesListData.filter(r =>
+                String(r.phone || '').toLowerCase().includes(term) ||
+                String(r.delegacion || '').toLowerCase().includes(term))
+            : delegacionesListData;
+
+        if (delegacionesListData.length === 0) {
+            delegacionesListTableWrap.style.display = 'none';
+            delegacionesListEmpty.style.display = 'block';
+            delegacionesListEmpty.textContent = 'No hay delegaciones registradas todavía.';
+            return;
+        }
+
+        if (filtered.length === 0) {
+            delegacionesListTableWrap.style.display = 'none';
+            delegacionesListEmpty.style.display = 'block';
+            delegacionesListEmpty.textContent = 'No se han encontrado delegaciones con ese criterio de búsqueda.';
+            return;
+        }
+
+        delegacionesListEmpty.style.display = 'none';
+        delegacionesListTableWrap.style.display = 'block';
+        delegacionesListTbody.innerHTML = filtered
+            .slice()
+            .sort((a, b) => String(a.delegacion || '').localeCompare(String(b.delegacion || ''), 'es'))
+            .map(r => `<tr><td>${escapeHtml(r.phone || '')}</td><td>${escapeHtml(r.delegacion || '')}</td></tr>`)
+            .join('');
+    }
+
+    async function openDelegacionesListModal() {
+        delegacionesListModalOverlay.classList.add('show');
+        delegacionesListSearch.value = '';
+        delegacionesListTableWrap.style.display = 'none';
+        delegacionesListEmpty.style.display = 'none';
+        delegacionesListLoading.style.display = 'block';
+
+        delegacionesListData = window._fbGetAllDelegaciones ? await window._fbGetAllDelegaciones() : [];
+        delegacionesListLoading.style.display = 'none';
+        renderDelegacionesList();
+    }
+
+    delegacionesConfigBtn.addEventListener('click', openDelegacionesListModal);
+    delegacionesListCloseBtn.addEventListener('click', () => delegacionesListModalOverlay.classList.remove('show'));
+    delegacionesListModalOverlay.addEventListener('click', (e) => { if (e.target === delegacionesListModalOverlay) delegacionesListModalOverlay.classList.remove('show'); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && delegacionesListModalOverlay.classList.contains('show')) delegacionesListModalOverlay.classList.remove('show'); });
+    delegacionesListSearch.addEventListener('input', renderDelegacionesList);
 
     /* ════════════════════════════════════════
        AUTENTICACIÓN
