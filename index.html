@@ -2107,7 +2107,6 @@ document.addEventListener('DOMContentLoaded', () => {
         /* Igualar longitudes de los tres arrays */
         while (entry.estados.length < entry.recogidas.length) entry.estados.push('-');
         while (entry.motivos.length < entry.recogidas.length) entry.motivos.push('');
-        entry.rma = shortRma(entry.rma);
         return entry;
     }
 
@@ -2125,18 +2124,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    /* Comprueba si algún rma se ha acortado respecto al valor guardado en Firebase
-       y, si es así, guarda ya la versión normalizada (migración automática de datos antiguos). */
-    function rmaFieldsChanged(rawRows, migratedRows) {
-        return (rawRows || []).some((e, i) => String(e.rma ?? '') !== String((migratedRows[i] || {}).rma ?? ''));
-    }
-
     async function loadTransport() {
         const raw = window._fbGetTransporte ? await window._fbGetTransporte() : [];
         lastSyncedTransportRows = JSON.parse(JSON.stringify(raw));
         transportEntries = raw.map((e, i) => migrateEntry(e, i));
         renderTransport();
-        if (rmaFieldsChanged(raw, transportEntries)) await saveTransport();
     }
 
     /* Sincronización en tiempo real del panel de transporte (igual que Seguimiento RMA):
@@ -2145,13 +2137,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let transporteRealtimeUnsub = null;
     function startTransporteRealtimeSync() {
         if (!window._fbListenTransporte) { loadTransport(); return; }
-        transporteRealtimeUnsub = window._fbListenTransporte(async (rows) => {
+        transporteRealtimeUnsub = window._fbListenTransporte((rows) => {
             lastSyncedTransportRows = JSON.parse(JSON.stringify(rows));
             transportEntries = rows.map((e, i) => migrateEntry(e, i));
             renderTransport();
-            /* Migración automática: RMAs antiguos con más de 5 caracteres se acortan y se
-               guardan ya normalizados en Firebase la primera vez que se leen. */
-            if (rmaFieldsChanged(rows, transportEntries)) await saveTransport();
         }, () => {
             /* Si falla la conexión en tiempo real, seguimos funcionando con carga manual */
             loadTransport();
@@ -2180,21 +2169,11 @@ document.addEventListener('DOMContentLoaded', () => {
         return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     }
 
-    /* Normaliza un número de RMA para que solo se muestren/guarden los 5 últimos
-       dígitos/caracteres. Ejemplo: "ES7JW80066" → "80066".
-       Si el valor ya tiene 5 caracteres o menos (o está vacío / es "N/A"), se deja tal cual. */
-    function shortRma(value) {
-        const s = String(value ?? '').trim();
-        if (!s || s.toUpperCase() === 'N/A') return s;
-        return s.length > 5 ? s.slice(-5) : s;
-    }
-
     function migrateIncidencia(entry) {
         if (!entry.id) entry.id = genId('inc');
         if (typeof entry.pinned !== 'boolean') entry.pinned = false;
         if (!Array.isArray(entry.updates)) entry.updates = [];
         entry.updates.forEach(u => { if (!u.id) u.id = genId('upd'); });
-        entry.rma = shortRma(entry.rma);
         return entry;
     }
 
@@ -2206,9 +2185,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const raw = window._fbGetIncidencias ? await window._fbGetIncidencias() : [];
         incidencias = raw.map(e => migrateIncidencia(e));
         renderIncidencias();
-        /* Si algún RMA antiguo tenía más de 5 caracteres, se acorta y se guarda ya normalizado en Firebase */
-        const cambiaron = raw.some((e, i) => String(e.rma ?? '') !== String(incidencias[i].rma ?? ''));
-        if (cambiaron) await saveIncidencias();
     }
 
     function updateIncidenciasBadge() {
@@ -2368,7 +2344,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.incSaveEdit = async function(id) {
         const idx = incFindIndex(id);
         if (idx === -1) return;
-        const rma  = shortRma(document.getElementById(`inc-edit-rma-${id}`).value.trim());
+        const rma  = document.getElementById(`inc-edit-rma-${id}`).value.trim();
         const desc = document.getElementById(`inc-edit-desc-${id}`).value.trim();
         if (!desc) { showNotification('La descripción de la incidencia no puede estar vacía'); return; }
         incidencias[idx].rma        = rma || 'N/A';
@@ -2554,7 +2530,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function addIncidencia(rma, descripcion) {
         incidencias.unshift({
             id: genId('inc'),
-            rma: shortRma(rma) || 'N/A',
+            rma: rma || 'N/A',
             incidencia: descripcion,
             fecha: nowStr(),
             pinned: false,
@@ -2810,7 +2786,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function addTransportEntry(rma, recogida, motivo) {
         transportEntries.push({
             id: Date.now().toString(),
-            rma: shortRma(rma) || 'N/A',
+            rma: rma || 'N/A',
             fecha: nowStr(),
             recogidas: recogida ? [recogida] : [],
             estados: recogida ? ['-'] : [],
@@ -2824,7 +2800,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /* ── Botón + para añadir línea manualmente ── */
     document.getElementById('tp-add-btn').addEventListener('click', async () => {
-        const rma = shortRma((prompt('RMA (opcional):') ?? '').trim());
+        const rma = (prompt('RMA (opcional):') ?? '').trim();
         transportEntries.push({
             id: Date.now().toString(),
             rma: rma || 'N/A',
@@ -2955,7 +2931,7 @@ document.addEventListener('DOMContentLoaded', () => {
     deleteButton.addEventListener('click', async () => {
         if (currentData.length === 0) return;
         const entry = currentData[currentIndex];
-        const rma   = shortRma(entry['RMA number']) || 'N/A';
+        const rma   = String(entry['RMA number'] || '').trim() || 'N/A';
 
         /* Add to transport panel */
         await addTransportEntry(rma, '', '');
@@ -3280,7 +3256,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 entry.cronometro.startedAt = null;
             }
         }
-        entry.rma = shortRma(entry.rma);
         return entry;
     }
 
@@ -3292,7 +3267,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const raw = window._fbGetRmaTracking ? await window._fbGetRmaTracking() : [];
         rmaTracking = raw.map(e => migrateRma(e));
         renderRmaTracking();
-        if (rmaFieldsChanged(raw, rmaTracking)) await saveRmaTracking();
     }
 
     /* ── Sincronización en tiempo real del Seguimiento RMA ──
@@ -3302,12 +3276,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let rmaRealtimeUnsub = null;
     function startRmaRealtimeSync() {
         if (!window._fbListenRmaTracking) { loadRmaTracking(); return; }
-        rmaRealtimeUnsub = window._fbListenRmaTracking(async (rows) => {
+        rmaRealtimeUnsub = window._fbListenRmaTracking((rows) => {
             rmaTracking = rows.map(e => migrateRma(e));
             renderRmaTracking();
-            /* Migración automática: RMAs antiguos con más de 5 caracteres se acortan y se
-               guardan ya normalizados en Firebase la primera vez que se leen. */
-            if (rmaFieldsChanged(rows, rmaTracking)) await saveRmaTracking();
         }, () => {
             /* Si falla la conexión en tiempo real, seguimos funcionando con carga manual/periódica */
             loadRmaTracking();
@@ -3378,16 +3349,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function loadRmaHistorial() {
-        const raw = window._fbGetRmaHistorial ? await window._fbGetRmaHistorial() : [];
-        rmaHistorial = raw.map(e => Object.assign({}, e, { rma: shortRma(e.rma) }));
+        rmaHistorial = window._fbGetRmaHistorial ? await window._fbGetRmaHistorial() : [];
         renderDashboard();
-        /* Migración automática: RMAs antiguos con más de 5 caracteres se acortan y se
-           guardan ya normalizados en Firebase la primera vez que se leen. */
-        if (rmaFieldsChanged(raw, rmaHistorial)) await saveRmaHistorial();
     }
 
     async function addRmaHistorial(rma, fase, usuario, extra) {
-        rmaHistorial.push(Object.assign({ id: genId('rmahist'), rma: shortRma(rma), fase, usuario: usuario || 'desconocido', fecha: nowStr() }, extra || {}));
+        rmaHistorial.push(Object.assign({ id: genId('rmahist'), rma, fase, usuario: usuario || 'desconocido', fecha: nowStr() }, extra || {}));
         await saveRmaHistorial();
     }
 
@@ -3402,7 +3369,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /* Añade un nuevo RMA a la fase "Pendiente Recibir" — el cronómetro no arranca hasta llegar a Pretest */
     async function addRmaTrackingEntry(rma) {
-        const value = shortRma(rma);
+        const value = String(rma ?? '').trim();
         if (!value) return;
         rmaTracking.push({
             id: genId('rma'), rma: value, fase: 'Pendiente Recibir', fecha: nowStr(), usuario: currentUserEmail,
