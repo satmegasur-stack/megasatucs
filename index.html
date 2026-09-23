@@ -2732,25 +2732,32 @@ document.addEventListener('DOMContentLoaded', () => {
         return '';
     }
 
-    /* Una "Situación" a veces llega como una fecha (p.ej. si el Excel de Correos
-       Express trae la celda mal formateada); esos valores no son estados reales
-       y no deben aparecer como opción en el desplegable de filtro. */
-    function esFechaComoEstado(str) {
-        const v = String(str ?? '').trim();
-        if (!v) return false;
-        return /^\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}/.test(v) || /^\d{4}-\d{2}-\d{2}/.test(v);
+    /* Limpia una "Situación" quitando cualquier fecha/hora que venga pegada al texto
+       (p.ej. "EFECTUADA 07/10/2026 10:23:00" → "EFECTUADA"), para quedarnos solo con
+       el estado en sí. Así dos registros con el mismo estado pero distinta fecha
+       cuentan como el mismo estado y no salen repetidos en el desplegable. */
+    function limpiarEstadoTexto(str) {
+        let v = String(str ?? '').trim();
+        if (!v) return '';
+        v = v.replace(/\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}/g, ' ');   // fechas dd/mm/yyyy, dd-mm-yyyy...
+        v = v.replace(/\d{4}-\d{1,2}-\d{1,2}/g, ' ');                  // fechas yyyy-mm-dd
+        v = v.replace(/\d{1,2}:\d{2}(:\d{2})?/g, ' ');                 // horas hh:mm[:ss]
+        v = v.replace(/[-–—,;()]+/g, ' ');                             // separadores sueltos que puedan quedar
+        v = v.replace(/\s+/g, ' ').trim();
+        return v;
     }
 
-    /* Lista de estados reales (sin fechas, sin vacíos ni "-") que hay actualmente
-       en los registros de transporte, para rellenar el desplegable del filtro. */
+    /* Lista de estados reales (sin fechas, sin vacíos, sin duplicados) que hay
+       actualmente en los registros de transporte, para rellenar el desplegable
+       del filtro. */
     function tpGetKnownEstados() {
-        const seen = new Map(); // clave en mayúsculas → texto original (primera aparición)
+        const seen = new Map(); // clave en mayúsculas → texto limpio (primera aparición)
         transportEntries.forEach(e => {
             (e.estados || []).forEach(s => {
-                const v = String(s ?? '').trim();
-                if (!v || v === '-' || esFechaComoEstado(v)) return;
-                const key = v.toUpperCase();
-                if (!seen.has(key)) seen.set(key, v);
+                const limpio = limpiarEstadoTexto(s);
+                if (!limpio || limpio === '-') return;
+                const key = limpio.toUpperCase();
+                if (!seen.has(key)) seen.set(key, limpio);
             });
         });
         return [...seen.values()].sort((a, b) => a.localeCompare(b, 'es'));
@@ -3274,7 +3281,7 @@ document.addEventListener('DOMContentLoaded', () => {
             list = list.filter(e => String(e.rma ?? '').toLowerCase().includes(term));
         }
         if (estadoTerm) {
-            list = list.filter(e => (e.estados || []).some(s => String(s ?? '').trim().toLowerCase() === estadoTerm));
+            list = list.filter(e => (e.estados || []).some(s => limpiarEstadoTexto(s).toLowerCase() === estadoTerm));
         }
         /* Fijados primero, resto después, manteniendo el orden relativo original */
         const pinned  = list.filter(e => e.pinned);
