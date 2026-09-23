@@ -1807,6 +1807,10 @@
                     <i class="fas fa-search"></i>
                     <input type="text" id="tp-search-input" placeholder="Buscar por RMA..." autocomplete="off">
                 </div>
+                <div class="tp-search-wrap">
+                    <i class="fas fa-filter"></i>
+                    <input type="text" id="tp-search-estado-input" placeholder="Buscar por Estado..." autocomplete="off">
+                </div>
                 <label for="correos-file-input" class="correos-label">
                     <i class="fas fa-file-excel"></i> Actualizar estados (Correos Express)
                     <input type="file" id="correos-file-input" accept=".xls, .xlsx">
@@ -2485,6 +2489,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const correosFileInput   = document.getElementById('correos-file-input');
     const transportBadge     = document.getElementById('transport-badge');
     const tpSearchInput      = document.getElementById('tp-search-input');
+    const tpSearchEstadoInput = document.getElementById('tp-search-estado-input');
     const incidenciasButton  = document.getElementById('incidencias-button');
     const incidenciasBadge   = document.getElementById('incidencias-badge');
     const incModalOverlay    = document.getElementById('incidencias-modal-overlay');
@@ -2662,6 +2667,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentIndex = 0;
     let transportEntries = [];   // array of { id, rma, fecha, recogidas[], estados[], motivos[], observaciones, pinned }
     let tpSearchTerm = '';
+    let tpEstadoSearchTerm = '';
 
     let incidencias = [];        // array of { id, rma, incidencia, fecha, pinned, updates: [{id, fecha, texto}] }
     let incExpandedId = null;    // id of the currently expanded incidencia
@@ -3214,9 +3220,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function getFilteredSortedEntries() {
         const term = tpSearchTerm.trim().toLowerCase();
+        const estadoTerm = tpEstadoSearchTerm.trim().toLowerCase();
         let list = transportEntries;
         if (term) {
             list = list.filter(e => String(e.rma ?? '').toLowerCase().includes(term));
+        }
+        if (estadoTerm) {
+            list = list.filter(e => (e.estados || []).some(s => String(s ?? '').toLowerCase().includes(estadoTerm)));
         }
         /* Fijados primero, resto después, manteniendo el orden relativo original */
         const pinned  = list.filter(e => e.pinned);
@@ -3304,6 +3314,12 @@ document.addEventListener('DOMContentLoaded', () => {
     /* ── Buscador por RMA ── */
     tpSearchInput.addEventListener('input', () => {
         tpSearchTerm = tpSearchInput.value;
+        renderTransport();
+    });
+
+    /* ── Buscador por Estado (no filtra por fecha, solo por el texto del estado) ── */
+    tpSearchEstadoInput.addEventListener('input', () => {
+        tpEstadoSearchTerm = tpSearchEstadoInput.value;
         renderTransport();
     });
 
