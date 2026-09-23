@@ -1065,6 +1065,9 @@
         .rma-column[data-phase="Pretest"]   .rma-column-count  { background: var(--secondary-color); }
         .rma-column[data-phase="En espera"] .rma-column-header { color: var(--warning-color); border-color: var(--warning-color); }
         .rma-column[data-phase="En espera"] .rma-column-count  { background: var(--warning-color); }
+        .rma-tickets-block { margin-bottom: 10px; padding-bottom: 8px; border-bottom: 2px dashed var(--border-color); }
+        .rma-tickets-block .rma-column-header { color: #e83e8c; border-color: #e83e8c; }
+        .rma-tickets-block .rma-column-count  { background: #e83e8c; }
         .rma-column[data-phase="Repair"]    .rma-column-header { color: #6f42c1; border-color: #6f42c1; }
         .rma-column[data-phase="Repair"]    .rma-column-count  { background: #6f42c1; }
         .rma-column[data-phase="Final Test"] .rma-column-header { color: var(--success-color); border-color: var(--success-color); }
@@ -1727,7 +1730,7 @@
                     </div>
                 </div>
                 <div class="dash-col dash-col-list">
-                    <h3 class="dashboard-title dash-title-warning"><i class="fas fa-triangle-exclamation"></i> Más de 2 días en fase (excl. Pendiente Recibir / En espera)</h3>
+                    <h3 class="dashboard-title dash-title-warning"><i class="fas fa-triangle-exclamation"></i> Más de 2 días en fase (excl. Pendiente Recibir / En espera / Tickets)</h3>
                     <div class="dash-list" id="dash-list-2dias">
                         <div class="dash-list-empty">Cargando…</div>
                     </div>
@@ -1923,6 +1926,10 @@
                         <div id="rma-list-pretest"></div>
                     </div>
                     <div class="rma-column" data-phase="En espera">
+                        <div id="rma-tickets-block" class="rma-tickets-block" style="display:none;">
+                            <div class="rma-column-header"><span><i class="fas fa-ticket"></i> Tickets</span><span class="rma-column-count" id="rma-count-tickets">0</span></div>
+                            <div id="rma-list-tickets"></div>
+                        </div>
                         <div class="rma-column-header"><span>En espera</span><span class="rma-column-count" id="rma-count-espera">0</span></div>
                         <div id="rma-list-espera"></div>
                     </div>
@@ -1984,6 +1991,24 @@
     </div>
 
     <!-- ══════════════════════════════════════════
+         ELECCIÓN DE FASE AL QUITAR UN RMA DE "TICKETS"
+    ══════════════════════════════════════════ -->
+    <div id="rma-ticket-phase-modal-overlay" class="modal-overlay">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h2><i class="fas fa-ticket"></i> Mover RMA fuera de Tickets</h2>
+                <button id="rma-ticket-phase-close-btn" class="modal-close-btn" title="Cerrar"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body">
+                <p style="margin:0 0 14px; color: var(--secondary-color); font-size: 0.9rem;">
+                    ¿A qué fase quieres mover el RMA <strong id="rma-ticket-phase-title"></strong>?
+                </p>
+                <div id="rma-ticket-phase-options" style="display:flex; flex-direction:column; gap:8px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════
          INFO DE RMA (añadir/editar/borrar/ver)
     ══════════════════════════════════════════ -->
     <div id="rma-info-modal-overlay" class="modal-overlay">
@@ -1998,6 +2023,12 @@
                     <span>Garantía:</span>
                     <button id="rma-info-garantia-g" class="rma-garantia-toggle-btn" onclick="rmaInfoSetGarantia('G')"><span class="rma-garantia-dot g"></span> En garantía</button>
                     <button id="rma-info-garantia-f" class="rma-garantia-toggle-btn" onclick="rmaInfoSetGarantia('F')"><span class="rma-garantia-dot f"></span> Fuera de garantía</button>
+                </div>
+                <div id="rma-info-ticket-row" class="rma-info-garantia-row">
+                    <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:400;">
+                        <input type="checkbox" id="rma-info-ticket-check" onchange="rmaInfoToggleTicket()">
+                        <span>Ticket</span>
+                    </label>
                 </div>
                 <div id="rma-info-espera-row" class="rma-info-garantia-row" style="display:none;">
                     <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:400;">
@@ -2493,6 +2524,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const rmaInfoAddBtn      = document.getElementById('rma-info-add-btn');
     const rmaInfoGarantiaGBtn = document.getElementById('rma-info-garantia-g');
     const rmaInfoGarantiaFBtn = document.getElementById('rma-info-garantia-f');
+    const rmaInfoTicketCheck    = document.getElementById('rma-info-ticket-check');
+    const rmaTicketPhaseModalOverlay = document.getElementById('rma-ticket-phase-modal-overlay');
+    const rmaTicketPhaseCloseBtn     = document.getElementById('rma-ticket-phase-close-btn');
+    const rmaTicketPhaseTitleEl      = document.getElementById('rma-ticket-phase-title');
+    const rmaTicketPhaseOptionsEl    = document.getElementById('rma-ticket-phase-options');
+    let rmaTicketPhasePendingId = null;
     const rmaInfoEsperaRow      = document.getElementById('rma-info-espera-row');
     const rmaInfoEsperaCheck    = document.getElementById('rma-info-espera-check');
     const rmaInfoEsperaLabel    = document.getElementById('rma-info-espera-label');
@@ -2634,6 +2671,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let rmaTracking = [];        // array of { id, rma, fase, fecha, usuario, info: [{id, fecha, texto, usuario}] }
     const RMA_PHASES = ['Pendiente Recibir', 'Pretest', 'En espera', 'Repair', 'Final Test'];
+    /* Fase especial "Tickets": comparte columna con "En espera" (mismo comportamiento
+       de cronómetro), pero se muestra en un bloque propio, con otro color, en la parte
+       superior de esa columna, y solo si hay algún RMA marcado. Se activa/desactiva con
+       el check "Ticket" en la Info del RMA, no con los botones normales de mover fase. */
+    const RMA_TICKET_PHASE = 'Tickets';
     /* Fases en las que se puede marcar "En espera de…" (motivo + cronómetro pausado) */
     const RMA_ESPERA_PHASES = ['Pretest', 'Final Test'];
     let rmaHistorial = [];       // array of { id, rma, fase, usuario, fecha } — historial completo de movimientos
@@ -3827,7 +3869,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function migrateRma(entry) {
         if (!entry.id) entry.id = genId('rma');
-        if (!RMA_PHASES.includes(entry.fase)) entry.fase = 'Pretest';
+        if (!RMA_PHASES.includes(entry.fase) && entry.fase !== RMA_TICKET_PHASE) entry.fase = 'Pretest';
         if (!entry.fecha) entry.fecha = nowStr();
         if (!entry.usuario) entry.usuario = '';
         if (entry.garantia !== 'G' && entry.garantia !== 'F') entry.garantia = null;
@@ -3842,7 +3884,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!entry.cronometro || typeof entry.cronometro !== 'object') {
             /* RMAs ya existentes que no tenían cronómetro: se crea arrancado desde ahora
                (pausado si ya está "En espera" o todavía "Pendiente Recibir") */
-            const startsRunning = entry.fase !== 'En espera' && entry.fase !== 'Pendiente Recibir';
+            const startsRunning = entry.fase !== 'En espera' && entry.fase !== 'Pendiente Recibir' && entry.fase !== RMA_TICKET_PHASE;
             entry.cronometro = { running: startsRunning, accumulatedMs: 0, startedAt: startsRunning ? Date.now() : null };
         } else {
             if (typeof entry.cronometro.accumulatedMs !== 'number') entry.cronometro.accumulatedMs = 0;
@@ -3850,7 +3892,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (entry.cronometro.running && typeof entry.cronometro.startedAt !== 'number') entry.cronometro.startedAt = Date.now();
             if (!entry.cronometro.running) entry.cronometro.startedAt = null;
             /* Consistencia de fase: en "En espera" y en "Pendiente Recibir" el cronómetro siempre debe estar pausado */
-            if ((entry.fase === 'En espera' || entry.fase === 'Pendiente Recibir') && entry.cronometro.running) {
+            if ((entry.fase === 'En espera' || entry.fase === 'Pendiente Recibir' || entry.fase === RMA_TICKET_PHASE) && entry.cronometro.running) {
                 entry.cronometro.accumulatedMs += (Date.now() - entry.cronometro.startedAt);
                 entry.cronometro.running = false;
                 entry.cronometro.startedAt = null;
@@ -4092,6 +4134,59 @@ document.addEventListener('DOMContentLoaded', () => {
         showNotification('Ya no está en espera: cronómetro reanudado');
     };
 
+    /* Check "Ticket" (cualquier fase):
+       - Al marcarlo, el RMA pasa a la fase especial "Tickets": comparte columna con
+         "En espera" (mismo comportamiento de cronómetro: se pausa), pero se muestra
+         en su propio bloque, con otro color, en la parte superior de esa columna.
+       - Al desmarcarlo, hay que elegir a qué fase se mueve (no vuelve solo a la
+         fase anterior, porque "Tickets" no forma parte del flujo normal de fases). */
+    window.rmaInfoToggleTicket = async function() {
+        if (!rmaInfoCurrentId) return;
+        const idx = rmaFindIndex(rmaInfoCurrentId);
+        if (idx === -1) return;
+        const entry = rmaTracking[idx];
+        const id = entry.id;
+
+        if (entry.fase !== RMA_TICKET_PHASE) {
+            await window.rmaMovePhase(id, RMA_TICKET_PHASE);
+            if (rmaInfoCurrentId === id) renderRmaInfo();
+            return;
+        }
+
+        renderRmaInfo();
+        openRmaTicketPhaseModal(id);
+    };
+
+    function openRmaTicketPhaseModal(id) {
+        const entry = rmaTracking.find(e => e.id === id);
+        if (!entry) return;
+        rmaTicketPhasePendingId = id;
+        rmaTicketPhaseTitleEl.textContent = entry.rma || '';
+        rmaTicketPhaseOptionsEl.innerHTML = RMA_PHASES.map(phase =>
+            `<button class="inc-add-update-btn" style="justify-content:flex-start;" onclick="rmaTicketPhaseChoose('${esc(phase)}')"><i class="fas fa-arrow-right"></i> ${esc(phase)}</button>`
+        ).join('');
+        rmaTicketPhaseModalOverlay.classList.add('show');
+    }
+
+    function closeRmaTicketPhaseModal() {
+        rmaTicketPhaseModalOverlay.classList.remove('show');
+        rmaTicketPhasePendingId = null;
+        if (rmaInfoCurrentId) renderRmaInfo();   // deja la casilla marcada si se cierra sin elegir
+    }
+
+    window.rmaTicketPhaseChoose = async function(phase) {
+        const id = rmaTicketPhasePendingId;
+        if (!id) return;
+        rmaTicketPhaseModalOverlay.classList.remove('show');
+        rmaTicketPhasePendingId = null;
+        await window.rmaMovePhase(id, phase);
+        if (rmaInfoCurrentId === id) renderRmaInfo();
+    };
+
+    rmaTicketPhaseCloseBtn.addEventListener('click', closeRmaTicketPhaseModal);
+    rmaTicketPhaseModalOverlay.addEventListener('click', (e) => { if (e.target === rmaTicketPhaseModalOverlay) closeRmaTicketPhaseModal(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && rmaTicketPhaseModalOverlay.classList.contains('show')) closeRmaTicketPhaseModal(); });
+
     /* Añadir tiempo manualmente al cronómetro (solo en fase Repair, desde Info):
        suma horas y minutos al tiempo acumulado, con el cronómetro en marcha o pausado, y
        lo deja registrado en la Info del RMA. */
@@ -4210,7 +4305,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const entry = rmaTracking[idx];
         if (!entry.cronometro) entry.cronometro = { running: false, accumulatedMs: 0, startedAt: null };
         const c = entry.cronometro;
-        if (newPhase === 'En espera' || newPhase === 'Pendiente Recibir') {
+        if (newPhase === 'En espera' || newPhase === 'Pendiente Recibir' || newPhase === RMA_TICKET_PHASE) {
             if (c.running) {
                 c.accumulatedMs = rmaCronoElapsedMs(entry);
                 c.running = false;
@@ -4347,6 +4442,8 @@ document.addEventListener('DOMContentLoaded', () => {
                        <button class="rma-move-btn to-espera" onclick="rmaMovePhase('${entry.id}','En espera')">→ En espera</button>`;
         } else if (entry.fase === 'Final Test') {
             actions = `<button class="rma-move-btn to-espera" onclick="rmaMovePhase('${entry.id}','En espera')">→ En espera</button>`;
+        } else if (entry.fase === RMA_TICKET_PHASE) {
+            actions = '';
         }
         let delBtn = '';
         if (entry.fase === 'Final Test') {
@@ -4395,6 +4492,19 @@ document.addEventListener('DOMContentLoaded', () => {
             'Final Test': { list: document.getElementById('rma-list-final'),    count: document.getElementById('rma-count-final') }
         };
         const term = (rmaSearchInput && rmaSearchInput.value || '').trim().toLowerCase();
+
+        /* Bloque "Tickets": comparte columna con "En espera", va en la parte superior,
+           y solo se muestra si hay algún RMA marcado como Ticket. */
+        const rmaTicketsBlockEl = document.getElementById('rma-tickets-block');
+        const rmaTicketsListEl  = document.getElementById('rma-list-tickets');
+        const rmaTicketsCountEl = document.getElementById('rma-count-tickets');
+        let ticketItems = rmaTracking.filter(e => e.fase === RMA_TICKET_PHASE);
+        if (term) ticketItems = ticketItems.filter(e => String(e.rma).toLowerCase().includes(term));
+        ticketItems = ticketItems.sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
+        if (rmaTicketsBlockEl) rmaTicketsBlockEl.style.display = ticketItems.length ? '' : 'none';
+        if (rmaTicketsCountEl) rmaTicketsCountEl.textContent = ticketItems.length;
+        if (rmaTicketsListEl) rmaTicketsListEl.innerHTML = ticketItems.map(rmaCardHtml).join('');
+
         RMA_PHASES.forEach(phase => {
             let items = rmaTracking.filter(e => e.fase === phase);
             if (term) items = items.filter(e => String(e.rma).toLowerCase().includes(term));
@@ -4454,6 +4564,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         rmaInfoGarantiaGBtn.classList.toggle('active-g', entry.garantia === 'G');
         rmaInfoGarantiaFBtn.classList.toggle('active-f', entry.garantia === 'F');
+
+        if (rmaInfoTicketCheck) rmaInfoTicketCheck.checked = (entry.fase === RMA_TICKET_PHASE);
 
         /* El check "En espera de…" solo se muestra mientras el RMA está en Pretest o Final Test */
         if (RMA_ESPERA_PHASES.includes(entry.fase)) {
@@ -4790,7 +4902,8 @@ document.addEventListener('DOMContentLoaded', () => {
         'Pretest': '#6c757d',
         'En espera': '#fd7e14',
         'Repair': '#6f42c1',
-        'Final Test': '#28a745'
+        'Final Test': '#28a745',
+        'Tickets': '#e83e8c'
     };
 
     /* Fases que cuentan como "en reparación" en tiempo real */
@@ -4798,7 +4911,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderDashboardPie() {
         if (!dashPieEl) return;
-        const counts = RMA_PHASES.map(phase => ({
+        const counts = RMA_PHASES.concat(RMA_TICKET_PHASE).map(phase => ({
             phase,
             count: rmaTracking.filter(e => e.fase === phase).length,
             color: RMA_PHASE_COLORS[phase] || '#999'
@@ -4882,7 +4995,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         /* ── Listado: más de 2 días en cualquier fase (excepto Pendiente Recibir / En espera) ── */
         const list2dias = rmaTracking
-            .filter(e => e.fase !== 'Pendiente Recibir' && e.fase !== 'En espera')
+            .filter(e => e.fase !== 'Pendiente Recibir' && e.fase !== 'En espera' && e.fase !== RMA_TICKET_PHASE)
             .map(e => {
                 const d = parseFechaHora(e.fecha);
                 const dias = d ? (now - d.getTime()) / 86400000 : 0;
@@ -4897,7 +5010,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         /* ── Listado: más de 30 días en "En espera" ── */
         const list30dias = rmaTracking
-            .filter(e => e.fase === 'En espera')
+            .filter(e => e.fase === 'En espera' || e.fase === RMA_TICKET_PHASE)
             .map(e => {
                 const d = parseFechaHora(e.fecha);
                 const dias = d ? (now - d.getTime()) / 86400000 : 0;
