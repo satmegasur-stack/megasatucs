@@ -896,6 +896,12 @@
             width: 170px; box-sizing: border-box;
         }
         #tp-search-input:focus { outline: none; border-color: var(--primary-color); }
+        #tp-search-estado-select {
+            padding: 8px 10px 8px 28px; border: 1px solid var(--border-color); border-radius: 5px;
+            font-family: inherit; font-size: 0.85rem; color: var(--text-color); background: var(--card-bg, transparent);
+            width: 170px; box-sizing: border-box; cursor: pointer;
+        }
+        #tp-search-estado-select:focus { outline: none; border-color: var(--primary-color); }
 
         /* Chincheta (marcar importante) */
         .pin-btn {
@@ -1503,8 +1509,8 @@
             /* Formularios y buscadores del panel de Transporte */
             .tp-header { flex-direction: column; align-items: stretch; }
             .tp-header-actions { flex-direction: column; align-items: stretch; width: 100%; }
-            .tp-search-wrap, #tp-search-input, .correos-label, #tp-add-btn { width: 100%; }
-            #tp-search-input { box-sizing: border-box; }
+            .tp-search-wrap, #tp-search-input, #tp-search-estado-select, .correos-label, #tp-add-btn { width: 100%; }
+            #tp-search-input, #tp-search-estado-select { box-sizing: border-box; }
 
             /* ── Seguimiento RMA: formulario, buscador y filtros ── */
             .rma-add-form { flex-direction: column; align-items: stretch; }
@@ -1809,7 +1815,9 @@
                 </div>
                 <div class="tp-search-wrap">
                     <i class="fas fa-filter"></i>
-                    <input type="text" id="tp-search-estado-input" placeholder="Buscar por Estado..." autocomplete="off">
+                    <select id="tp-search-estado-select">
+                        <option value="">Todos los estados</option>
+                    </select>
                 </div>
                 <label for="correos-file-input" class="correos-label">
                     <i class="fas fa-file-excel"></i> Actualizar estados (Correos Express)
@@ -2489,7 +2497,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const correosFileInput   = document.getElementById('correos-file-input');
     const transportBadge     = document.getElementById('transport-badge');
     const tpSearchInput      = document.getElementById('tp-search-input');
-    const tpSearchEstadoInput = document.getElementById('tp-search-estado-input');
+    const tpSearchEstadoSelect = document.getElementById('tp-search-estado-select');
     const incidenciasButton  = document.getElementById('incidencias-button');
     const incidenciasBadge   = document.getElementById('incidencias-badge');
     const incModalOverlay    = document.getElementById('incidencias-modal-overlay');
@@ -2722,6 +2730,46 @@ document.addEventListener('DOMContentLoaded', () => {
         if (s.includes('entregada') || s.includes('entregado')) return 'estado-entregada';
         if (s.includes('incidencia') || s.includes('devuelta') || s.includes('error')) return 'estado-incidencia';
         return '';
+    }
+
+    /* Una "Situación" a veces llega como una fecha (p.ej. si el Excel de Correos
+       Express trae la celda mal formateada); esos valores no son estados reales
+       y no deben aparecer como opción en el desplegable de filtro. */
+    function esFechaComoEstado(str) {
+        const v = String(str ?? '').trim();
+        if (!v) return false;
+        return /^\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}/.test(v) || /^\d{4}-\d{2}-\d{2}/.test(v);
+    }
+
+    /* Lista de estados reales (sin fechas, sin vacíos ni "-") que hay actualmente
+       en los registros de transporte, para rellenar el desplegable del filtro. */
+    function tpGetKnownEstados() {
+        const seen = new Map(); // clave en mayúsculas → texto original (primera aparición)
+        transportEntries.forEach(e => {
+            (e.estados || []).forEach(s => {
+                const v = String(s ?? '').trim();
+                if (!v || v === '-' || esFechaComoEstado(v)) return;
+                const key = v.toUpperCase();
+                if (!seen.has(key)) seen.set(key, v);
+            });
+        });
+        return [...seen.values()].sort((a, b) => a.localeCompare(b, 'es'));
+    }
+
+    /* Vuelve a construir las opciones del desplegable a partir de los estados
+       presentes ahora mismo, manteniendo la selección actual si sigue existiendo. */
+    function tpPopulateEstadoFilter() {
+        if (!tpSearchEstadoSelect) return;
+        const current = tpSearchEstadoSelect.value;
+        const estados = tpGetKnownEstados();
+        tpSearchEstadoSelect.innerHTML = '<option value="">Todos los estados</option>' +
+            estados.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
+        if (current && estados.some(v => v === current)) {
+            tpSearchEstadoSelect.value = current;
+        } else {
+            tpSearchEstadoSelect.value = '';
+            tpEstadoSearchTerm = '';
+        }
     }
 
     function updateBadge() {
@@ -3226,7 +3274,7 @@ document.addEventListener('DOMContentLoaded', () => {
             list = list.filter(e => String(e.rma ?? '').toLowerCase().includes(term));
         }
         if (estadoTerm) {
-            list = list.filter(e => (e.estados || []).some(s => String(s ?? '').toLowerCase().includes(estadoTerm)));
+            list = list.filter(e => (e.estados || []).some(s => String(s ?? '').trim().toLowerCase() === estadoTerm));
         }
         /* Fijados primero, resto después, manteniendo el orden relativo original */
         const pinned  = list.filter(e => e.pinned);
@@ -3240,6 +3288,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const table = document.getElementById('transport-table');
         tbody.innerHTML = '';
         updateBadge();
+        tpPopulateEstadoFilter();
 
         if (transportEntries.length === 0) {
             empty.style.display = 'block';
@@ -3317,9 +3366,10 @@ document.addEventListener('DOMContentLoaded', () => {
         renderTransport();
     });
 
-    /* ── Buscador por Estado (no filtra por fecha, solo por el texto del estado) ── */
-    tpSearchEstadoInput.addEventListener('input', () => {
-        tpEstadoSearchTerm = tpSearchEstadoInput.value;
+    /* ── Filtro por Estado: desplegable con los estados reales presentes en los
+       registros (sin fechas, sin vacíos), no un campo de texto libre ── */
+    tpSearchEstadoSelect.addEventListener('change', () => {
+        tpEstadoSearchTerm = tpSearchEstadoSelect.value;
         renderTransport();
     });
 
