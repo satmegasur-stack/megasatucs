@@ -141,6 +141,8 @@
 
         const CRYPTO_CHECK_AAD = 'config/crypto';
         const REMEMBER_KEY = 'enc_key_v1';
+        window._fbLoadOk = {};     // colección -> true si se leyó bien la última vez
+        window._fbForce = false;   // true solo durante la restauración de backup
         let currentSalt = null;   // sal (base64) de la clave con la que esta sesión desbloqueó los datos
         const cryptoRef = () => doc(db, 'config', 'crypto');
 
@@ -150,7 +152,7 @@
 
         window._fbCryptoSupported = cryptoSupported;
         window._fbCryptoReady = () => !!cryptoKeys;
-        window._fbCryptoLock = () => { cryptoKeys = null; currentSalt = null; };
+        window._fbCryptoLock = () => { cryptoKeys = null; currentSalt = null; window._fbLoadOk = {}; };
         window._fbCryptoRemembered = () => { try { return !!localStorage.getItem(REMEMBER_KEY); } catch (e) { return false; } };
         window._fbCryptoForget = () => { try { localStorage.removeItem(REMEMBER_KEY); } catch (e) {} };
 
@@ -407,13 +409,8 @@
         };
 
         window._fbSetDelegacion = async (phone, delegacion) => {
-            if (!phone || phone === 'N/A') return;
-            if (!delegKeyOf(phone)) return;
-            try {
-                await window._fbSetDelegacionStrict(phone, delegacion);
-            } catch (e) {
-                console.error('Firebase set error:', e);
-            }
+            if (!phone || phone === 'N/A' || !delegKeyOf(phone)) throw new Error('Esta ficha no tiene un teléfono válido: no se puede guardar la delegación');
+            await window._fbSetDelegacionStrict(phone, delegacion);
         };
 
         window._fbGetAllDelegaciones = async () => {
@@ -437,14 +434,15 @@
 
         window._fbSetAllDelegaciones = async (rows) => {
             try {
-                const batch = writeBatch(db);
+                const ops = [];
                 for (const r of (rows || [])) {
                     const key = delegKeyOf(r.phone);
                     if (!key) continue;
                     const ref = await delegRef(key);
-                    batch.set(ref, await encodeDoc({ delegacion: r.delegacion, phone: r.phone }, 'delegaciones/' + ref.id));
+                    const payload = await encodeDoc({ delegacion: r.delegacion, phone: r.phone }, 'delegaciones/' + ref.id);
+                    ops.push((b) => b.set(ref, payload));
                 }
-                await batch.commit();
+                await commitInChunks(ops);   // trozos de 400: un batch admite máx. 500 escrituras
             } catch (e) {
                 console.error('Firebase set all delegaciones error:', e);
                 throw e;
@@ -455,19 +453,28 @@
         const rowsGet = (col, label) => async () => {
             try {
                 const snap = await getDoc(doc(db, col, 'entries'));
-                if (!snap.exists()) return [];
+                if (!snap.exists()) { window._fbLoadOk[col] = true; return []; }
                 const d = await decodeDoc(snap.data(), col + '/entries');
+                window._fbLoadOk[col] = true;
                 return (d && d.rows) || [];
             } catch (e) {
+                window._fbLoadOk[col] = false;
                 console.error(`Firebase get ${label} error:`, e);
                 return [];
             }
         };
         const rowsSet = (col, label) => async (rows) => {
+            if (!window._fbForce && window._fbLoadOk[col] !== true) {
+                alert(`No se guardó "${label}": los datos aún no se han cargado bien. Recarga la página e inténtalo de nuevo.`);
+                throw new Error('not-loaded:' + col);
+            }
             try {
                 await setDoc(doc(db, col, 'entries'), await encodeDoc({ rows }, col + '/entries'));
+                window._fbLoadOk[col] = true;
             } catch (e) {
                 console.error(`Firebase set ${label} error:`, e);
+                alert(`No se pudo guardar "${label}". Revisa la conexión y vuelve a intentarlo.`);
+                throw e;
             }
         };
         /* Escucha en tiempo real: cada cambio se descifra antes de entregarlo. Si llegan dos
@@ -483,13 +490,13 @@
                             const d = await decodeDoc(snap.data(), col + '/entries');
                             rows = (d && d.rows) || [];
                         }
-                        if (mine === seq) onChange(rows);
+                        if (mine === seq) { window._fbLoadOk[col] = true; onChange(rows); }
                     } catch (e) {
-                        console.error(`Firebase decrypt ${label} error:`, e);
+                        window._fbLoadOk[col] = false; console.error(`Firebase decrypt ${label} error:`, e);
                         if (onError) onError(e);
                     }
                 }, (e) => {
-                    console.error(`Firebase onSnapshot ${label} error:`, e);
+                    window._fbLoadOk[col] = false; console.error(`Firebase onSnapshot ${label} error:`, e);
                     if (onError) onError(e);
                 });
             } catch (e) {
@@ -572,6 +579,28 @@
                 return mergedResult;
             } catch (e) {
                 console.error('Firebase merge transporte error:', e);
+                return null;
+            }
+        };
+
+        /* Seguimiento RMA: mismo merge de 3 vías por id que el transporte, dentro de una
+           transacción, para que dos técnicos no se pisen el array completo. */
+        window._fbMergeRmaTracking = async (localRows, baseRows) => {
+            try {
+                let out = null;
+                const aad = 'rma_tracking/entries';
+                await runTransaction(db, async (tx) => {
+                    const ref = doc(db, 'rma_tracking', 'entries');
+                    const snap = await tx.get(ref);
+                    const theirs = snap.exists() ? (((await decodeDoc(snap.data(), aad)) || {}).rows || []) : [];
+                    const merged = mergeTransportArrays(baseRows, localRows, theirs);
+                    tx.set(ref, await encodeDoc({ rows: merged }, aad));
+                    out = merged;
+                });
+                window._fbLoadOk['rma_tracking'] = true;
+                return out;
+            } catch (e) {
+                console.error('Firebase merge rma_tracking error:', e);
                 return null;
             }
         };
@@ -2676,6 +2705,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let transportEntries = [];   // array of { id, rma, fecha, recogidas[], estados[], motivos[], observaciones, pinned }
     let tpSearchTerm = '';
     let tpEstadoSearchTerm = '';
+    let tpEditingId = null;   // fila de transporte en edición (los snapshots no deben pisarla)
 
     let incidencias = [];        // array of { id, rma, incidencia, fecha, pinned, updates: [{id, fecha, texto}] }
     let incExpandedId = null;    // id of the currently expanded incidencia
@@ -2711,6 +2741,14 @@ document.addEventListener('DOMContentLoaded', () => {
     ════════════════════════════════════════ */
 
     function pad2(n) { return String(n).padStart(2, '0'); }
+
+    /* Marca de tiempo comparable para 'dd/mm/aaaa hh:mm' (nowStr) o ISO; 0 si no se entiende */
+    function fechaTs(f) {
+        const d = parseFechaHora(f);
+        if (d) return d.getTime();
+        const t = Date.parse(String(f || ''));
+        return isNaN(t) ? 0 : t;
+    }
 
     function nowStr() {
         const d = new Date();
@@ -2819,6 +2857,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function saveTransport() {
         if (!window._fbMergeTransporte) return;
         const merged = await window._fbMergeTransporte(transportEntries, lastSyncedTransportRows);
+        if (!merged) { alert('No se pudo guardar el transporte. Revisa la conexión y vuelve a intentarlo.'); throw new Error('merge-failed'); }
         if (merged) {
             transportEntries = merged.map((e, i) => migrateEntry(e, i));
             lastSyncedTransportRows = JSON.parse(JSON.stringify(merged));
@@ -2841,7 +2880,8 @@ document.addEventListener('DOMContentLoaded', () => {
         transporteRealtimeUnsub = window._fbListenTransporte((rows) => {
             lastSyncedTransportRows = JSON.parse(JSON.stringify(rows));
             transportEntries = rows.map((e, i) => migrateEntry(e, i));
-            renderTransport();
+            if (tpEditingId && document.getElementById('te-rec-' + tpEditingId)) updateBadge();   // no interrumpir la edición
+            else renderTransport();
         }, () => {
             /* Si falla la conexión en tiempo real, seguimos funcionando con carga manual */
             loadTransport();
@@ -3290,6 +3330,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderTransport() {
+        tpEditingId = null;
         const tbody = document.getElementById('tp-tbody');
         const empty = document.getElementById('tp-empty');
         const table = document.getElementById('transport-table');
@@ -3326,7 +3367,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const recLines = recogidas.map(r => {
                 const v = String(r ?? '').trim();
                 return v
-                    ? `<div><span class="rec-link" title="Copiar y abrir Correos Express" onclick="tpOpenRecogida('${esc(v)}')">${esc(v)}</span></div>`
+                    ? `<div><span class="rec-link" title="Copiar y abrir Correos Express" data-rec="${esc(v)}" onclick="tpOpenRecogida(this.dataset.rec)">${esc(v)}</span></div>`
                     : `<div></div>`;
             }).join('');
 
@@ -3401,7 +3442,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (idx === -1) return;
         const e = transportEntries[idx];
         /* Buscamos la fila en el DOM (puede no coincidir con idx por filtro/orden) */
-        const tr = document.querySelector(`button[onclick="tpEdit('${id}')"]`).closest('tr');
+        const editBtn = document.querySelector(`button[onclick="tpEdit('${id}')"]`);
+        if (!editBtn) return;   // la fila ya no está en pantalla
+        const tr = editBtn.closest('tr');
 
         const recVal = e.recogidas.join('\n');
         const estVal = e.estados.join('\n');
@@ -3427,6 +3470,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <td></td>
         `;
         document.getElementById(`te-rec-${id}`).focus();
+        tpEditingId = id;
     };
 
     /* Convierte el texto de un textarea (una línea por valor) en un array limpio */
@@ -3439,15 +3483,18 @@ document.addEventListener('DOMContentLoaded', () => {
         if (idx === -1) return;
         const e = transportEntries[idx];
 
-        const recogidas = linesToArray(document.getElementById(`te-rec-${id}`).value);
-        let estados     = document.getElementById(`te-est-${id}`).value.split('\n').map(s => s.trim());
-        let motivos     = document.getElementById(`te-mot-${id}`).value.split('\n').map(s => s.trim());
-        /* Quitamos líneas sobrantes o rellenamos hasta igualar la longitud de recogidas */
-        estados = estados.slice(0, recogidas.length);
-        motivos = motivos.slice(0, recogidas.length);
-        while (estados.length < recogidas.length) estados.push('-');
-        while (motivos.length < recogidas.length) motivos.push('');
-        estados = estados.map(s => s || '-');
+        /* Las tres columnas se alinean por número de línea; al descartar una línea de recogida
+           en blanco se descartan también su estado y motivo (antes se desalineaban). */
+        const recLines = document.getElementById(`te-rec-${id}`).value.split('\n').map(s => s.trim());
+        const estLines = document.getElementById(`te-est-${id}`).value.split('\n').map(s => s.trim());
+        const motLines = document.getElementById(`te-mot-${id}`).value.split('\n').map(s => s.trim());
+        const recogidas = [], estados = [], motivos = [];
+        recLines.forEach((r, i) => {
+            if (!r) return;
+            recogidas.push(r);
+            estados.push(estLines[i] || '-');
+            motivos.push(motLines[i] || '');
+        });
 
         e.recogidas      = recogidas;
         e.estados        = estados;
@@ -3513,7 +3560,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /* ── Botón + para añadir línea manualmente ── */
     document.getElementById('tp-add-btn').addEventListener('click', async () => {
-        const rma = (prompt('RMA (opcional):') ?? '').trim();
+        const rmaPrompt = prompt('RMA (opcional):');
+        if (rmaPrompt === null) return;   // cancelar no crea la línea
+        const rma = rmaPrompt.trim();
         transportEntries.push({
             id: Date.now().toString(),
             rma: rma || 'N/A',
@@ -3537,9 +3586,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const reader = new FileReader();
         reader.onload = async (e) => {
             const data    = new Uint8Array(e.target.result);
-            const wb      = XLSX.read(data, { type: 'array' });
-            const ws      = wb.Sheets[wb.SheetNames[0]];
-            const rows    = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+            let rows;
+            try {
+                const wb = XLSX.read(data, { type: 'array' });
+                rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+            } catch (err) {
+                console.error(err);
+                showNotification('No se pudo leer el archivo de Correos');
+                event.target.value = '';
+                return;
+            }
 
             /* Find header row: first column = "Rec" */
             let hdrIdx = -1;
@@ -3636,12 +3692,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /* ── Al pulsar "Cargar archivo", el dashboard inicial desaparece ── */
     const fileLabelEl = document.querySelector('.file-label');
-    if (fileLabelEl) fileLabelEl.addEventListener('click', hideDashboard);
 
     /* ════════════════════════════════════════
        DELETE / PROCESAR button
     ════════════════════════════════════════ */
+    let procesando = false;
     deleteButton.addEventListener('click', async () => {
+        if (procesando) return;            // evita procesar dos veces con doble clic
+        procesando = true;
+        try { await procesarActual(); } finally { procesando = false; }
+    });
+    async function procesarActual() {
         if (currentData.length === 0) return;
         const entry = currentData[currentIndex];
         const rma   = String(entry['RMA number'] || '').trim() || 'N/A';
@@ -3666,13 +3727,22 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentData.length === 0) {
             document.getElementById('data-wrapper').style.display = 'none';
             document.getElementById('navigation-buttons').style.display = 'none';
+            /* No se toca el innerHTML de #no-data-message: contiene el dashboard */
             document.getElementById('no-data-message').style.display = 'block';
-            document.getElementById('no-data-message').innerHTML = '<p>Todos los registros han sido procesados.</p>';
+            let doneMsg = document.getElementById('all-processed-msg');
+            if (!doneMsg) {
+                doneMsg = document.createElement('p');
+                doneMsg.id = 'all-processed-msg';
+                doneMsg.textContent = 'Todos los registros han sido procesados.';
+                const nd = document.getElementById('no-data-message');
+                nd.parentNode.insertBefore(doneMsg, nd);
+            }
+            doneMsg.style.display = 'block';
         } else {
             if (currentIndex >= currentData.length) currentIndex = currentData.length - 1;
             displayEntry(currentIndex);
         }
-    });
+    }
 
     /* ════════════════════════════════════════
        COPY helpers
@@ -3718,7 +3788,7 @@ document.addEventListener('DOMContentLoaded', () => {
             delegacionStatus.classList.add('show');
             setTimeout(() => delegacionStatus.classList.remove('show'), 2500);
             showNotification(`Delegación '${valor}' guardada`);
-        } catch(e) { showNotification('Error al guardar en Firebase'); }
+        } catch(e) { showNotification(e && e.message && e.message.startsWith('Esta ficha') ? e.message : 'Error al guardar en Firebase'); }
         saveDelegacionBtn.disabled = false;
         saveDelegacionBtn.innerHTML = '<i class="fas fa-save"></i> Guardar';
     });
@@ -3850,7 +3920,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const street     = String(row['Street']   || '');
             const house      = String(row['House no'] || '');
             let direccion    = `${street} ${house}`.trim().replace(/\//g, ',');
-            return { nombre, direccion, cp: row['ZIP'] || '', poblacion: row['City'] || '', telefono: row['Phone'] || '', contacto: fullName };
+            return { nombre, direccion, cp: (() => { const z = String(row['ZIP'] || '').split('.')[0].trim(); return z.length === 4 ? '0' + z : z; })(), poblacion: row['City'] || '', telefono: row['Phone'] || '', contacto: fullName };
         });
         const ws = XLSX.utils.json_to_sheet(wsData);
         XLSX.utils.book_append_sheet(wb, ws, 'asus');
@@ -3861,29 +3931,41 @@ document.addEventListener('DOMContentLoaded', () => {
        FILE SELECT
     ════════════════════════════════════════ */
     function handleFileSelect(event) {
-        const file   = event.target.files[0];
+        const input = event.target;
+        const file  = input.files[0];
+        if (!file) return;                       // diálogo cancelado: no se hace nada
         const reader = new FileReader();
         reader.onload = (e) => {
-            const data     = new Uint8Array(e.target.result);
-            const workbook = XLSX.read(data, { type: 'array' });
-            currentData    = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
-            if (currentData.length > 0) {
+            try {
+                const data     = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const rows     = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+                if (rows.length === 0) { showNotification('El archivo no contiene filas'); return; }
+                currentData  = rows;
                 currentIndex = 0;
                 displayEntry(0);
                 delegacionesButton.style.display = 'inline-block';
                 recogidasButton.style.display    = 'inline-block';
+            } catch (err) {
+                console.error(err);
+                showNotification('No se pudo leer el archivo. ¿Es un Excel o CSV válido?');
+            } finally {
+                input.value = '';                // permite volver a elegir el mismo archivo
             }
         };
+        reader.onerror = () => { showNotification('No se pudo leer el archivo'); input.value = ''; };
         reader.readAsArrayBuffer(file);
     }
 
     /* ════════════════════════════════════════
        DISPLAY ENTRY
     ════════════════════════════════════════ */
+    let delegLoadSeq = 0;   // descarta respuestas de delegación de registros ya abandonados
     function displayEntry(index) {
         const entry  = currentData[index];
         currentIndex = index;
         document.getElementById('no-data-message').style.display   = 'none';
+        const doneMsgEl = document.getElementById('all-processed-msg'); if (doneMsgEl) doneMsgEl.style.display = 'none';
         document.getElementById('data-wrapper').style.display       = 'flex';
         document.getElementById('navigation-buttons').style.display = 'flex';
 
@@ -3900,7 +3982,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('customer-email').textContent = entry['Email'] || 'N/A';
 
         /* Process problem description */
-        const rawProblem = entry['Customer problem description'] || '';
+        const rawProblem = String(entry['Customer problem description'] || '');
         let processedProblem = rawProblem;
         const searchStr  = 'DESC:';
         const indexDes   = rawProblem.indexOf(searchStr);
@@ -3919,12 +4001,14 @@ document.addEventListener('DOMContentLoaded', () => {
         saveDelegacionBtn.disabled  = true;
         const phone = entry['Phone'] || '';
 
+        const token = ++delegLoadSeq;
         const loadDelegacion = () => {
+            const fin = () => { delegacionInput.placeholder = 'Escribe la delegación...'; saveDelegacionBtn.disabled = false; };
             window._fbGetDelegacion(String(phone)).then(val => {
-                delegacionInput.placeholder = 'Escribe la delegación...';
-                saveDelegacionBtn.disabled  = false;
+                if (token !== delegLoadSeq) return;   // ya se está mostrando otro registro
+                fin();
                 if (val) { delegacionInput.value = val; delegacionInput.classList.add('saved'); }
-            });
+            }).catch(() => { if (token === delegLoadSeq) fin(); });
         };
 
         if (window._fbGetDelegacion) {
@@ -3980,13 +4064,21 @@ document.addEventListener('DOMContentLoaded', () => {
         return entry;
     }
 
+    /* Base del merge: última versión conocida de Firestore (ya migrada, para que las
+       entradas sin cambios locales se comparen como iguales). */
+    let lastSyncedRmaRows = [];
     async function saveRmaTracking() {
-        if (window._fbSetRmaTracking) await window._fbSetRmaTracking(rmaTracking);
+        if (!window._fbMergeRmaTracking) return;
+        const merged = await window._fbMergeRmaTracking(rmaTracking, lastSyncedRmaRows);
+        if (!merged) { alert('No se pudo guardar el seguimiento RMA. Revisa la conexión y vuelve a intentarlo.'); throw new Error('merge-failed'); }
+        rmaTracking = merged.map(e => migrateRma(e));
+        lastSyncedRmaRows = JSON.parse(JSON.stringify(rmaTracking));
     }
 
     async function loadRmaTracking() {
         const raw = window._fbGetRmaTracking ? await window._fbGetRmaTracking() : [];
         rmaTracking = raw.map(e => migrateRma(e));
+        lastSyncedRmaRows = JSON.parse(JSON.stringify(rmaTracking));
         renderRmaTracking();
     }
 
@@ -3999,6 +4091,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!window._fbListenRmaTracking) { loadRmaTracking(); return; }
         rmaRealtimeUnsub = window._fbListenRmaTracking((rows) => {
             rmaTracking = rows.map(e => migrateRma(e));
+            lastSyncedRmaRows = JSON.parse(JSON.stringify(rmaTracking));
             renderRmaTracking();
         }, () => {
             /* Si falla la conexión en tiempo real, seguimos funcionando con carga manual/periódica */
@@ -4351,19 +4444,10 @@ document.addEventListener('DOMContentLoaded', () => {
         rmaTracking[idx].fecha   = nowStr();
         rmaTracking[idx].usuario = currentUserEmail;
 
-        /* Al pasar de "Pendiente Recibir" a "Pretest", el equipo ya ha sido recibido:
-           si ese RMA seguía en el panel de transporte (a la espera de recogida), se elimina de allí. */
-        if (oldPhase === 'Pendiente Recibir' && newPhase === 'Pretest') {
-            const rmaValue = String(rmaTracking[idx].rma ?? '').trim().toLowerCase();
-            if (rmaValue) {
-                const before = transportEntries.length;
-                transportEntries = transportEntries.filter(e => String(e.rma ?? '').trim().toLowerCase() !== rmaValue);
-                if (transportEntries.length !== before) {
-                    await saveTransport();
-                    renderTransport();
-                }
-            }
-        }
+        /* Tras guardar, rmaTracking se reemplaza por el resultado del merge: idx deja de ser fiable,
+           así que se conserva el nombre del RMA. La baja en Transporte se hace al final. */
+        const rmaName = rmaTracking[idx].rma;
+        const quitarDeTransporte = (oldPhase === 'Pendiente Recibir' && newPhase === 'Pretest');
 
         /* "En espera de…" solo aplica dentro de la fase en la que se marcó: si al cambiar de fase
            seguía activo, se quita (queda registrado en Info) y el cronómetro continúa según la
@@ -4397,9 +4481,22 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         await saveRmaTracking();
-        await addRmaHistorial(rmaTracking[idx].rma, newPhase, currentUserEmail);
+        await addRmaHistorial(rmaName, newPhase, currentUserEmail);
         renderRmaTracking();
-        showNotification(`RMA ${rmaTracking[idx].rma} movido a "${newPhase}"`);
+        showNotification(`RMA ${rmaName} movido a "${newPhase}"`);
+
+        /* Al pasar de "Pendiente Recibir" a "Pretest" el equipo ya ha llegado: se quita de Transporte */
+        if (quitarDeTransporte) {
+            const rmaValue = String(rmaName ?? '').trim().toLowerCase();
+            if (rmaValue) {
+                const before = transportEntries.length;
+                transportEntries = transportEntries.filter(e => String(e.rma ?? '').trim().toLowerCase() !== rmaValue);
+                if (transportEntries.length !== before) {
+                    await saveTransport();
+                    renderTransport();
+                }
+            }
+        }
     }
 
     function openRmaMotivoModal(id, newPhase) {
@@ -4464,7 +4561,9 @@ document.addEventListener('DOMContentLoaded', () => {
            se elimina del tablero de seguimiento justo después: si no se
            conservara aquí, se perdería para siempre (Contabilidad y
            Estadísticas la necesitan aunque el RMA ya no esté en curso). */
-        await addRmaHistorial(entry.rma, 'Finalizado', currentUserEmail, { garantia: entry.garantia || null });
+        const precioFijado = entry.garantia === 'G' ? rmaContabilidad.precioGarantia
+                           : entry.garantia === 'F' ? rmaContabilidad.precioFueraGarantia : null;
+        await addRmaHistorial(entry.rma, 'Finalizado', currentUserEmail, { garantia: entry.garantia || null, precio: precioFijado });
         renderRmaTracking();
         showNotification(`RMA ${entry.rma} finalizado`);
     };
@@ -4573,7 +4672,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const rmaTicketsCountEl = document.getElementById('rma-count-tickets');
         let ticketItems = rmaTracking.filter(e => e.fase === RMA_TICKET_PHASE);
         if (term) ticketItems = ticketItems.filter(e => String(e.rma).toLowerCase().includes(term));
-        ticketItems = ticketItems.sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
+        ticketItems = ticketItems.sort((a, b) => (fechaTs(b.fecha) - fechaTs(a.fecha)));
         if (rmaTicketsBlockEl) rmaTicketsBlockEl.style.display = ticketItems.length ? '' : 'none';
         if (rmaTicketsCountEl) rmaTicketsCountEl.textContent = ticketItems.length;
         if (rmaTicketsListEl) rmaTicketsListEl.innerHTML = ticketItems.map(rmaCardHtml).join('');
@@ -4588,9 +4687,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 items = items.sort((a, b) =>
                     (garRank(a) - garRank(b)) ||
                     (rmaCronoElapsedMs(b) - rmaCronoElapsedMs(a)) ||
-                    (a.fecha < b.fecha ? 1 : -1));
+                    (fechaTs(b.fecha) - fechaTs(a.fecha)));
             } else {
-                items = items.sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
+                items = items.sort((a, b) => (fechaTs(b.fecha) - fechaTs(a.fecha)));
             }
             cols[phase].count.textContent = items.length;
             cols[phase].list.innerHTML = items.length
@@ -4655,7 +4754,7 @@ document.addEventListener('DOMContentLoaded', () => {
         /* "Añadir tiempo al cronómetro" solo se muestra mientras el RMA está en Repair */
         rmaInfoTiempoRow.style.display = entry.fase === 'Repair' ? 'flex' : 'none';
 
-        const notes = (entry.info || []).slice().sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
+        const notes = (entry.info || []).slice().sort((a, b) => (fechaTs(b.fecha) - fechaTs(a.fecha)));
         if (notes.length === 0) {
             rmaInfoEmpty.style.display = 'block';
             rmaInfoList.innerHTML = '';
@@ -4777,7 +4876,7 @@ document.addEventListener('DOMContentLoaded', () => {
         await addRmaTrackingEntry(value);
         rmaNewInput.value = '';
         rmaNewInput.focus();
-        showNotification(`RMA ${value} añadido a Pretest`);
+        showNotification(`RMA ${value} añadido a Pendiente Recibir`);
     });
     rmaNewInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') rmaAddBtn.click(); });
 
@@ -4786,7 +4885,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const term  = (rmaHistSearchInput.value || '').trim().toLowerCase();
         const list  = document.getElementById('rma-historial-list');
         const empty = document.getElementById('rma-historial-empty');
-        let items = rmaHistorial.slice().sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
+        let items = rmaHistorial.slice().sort((a, b) => (fechaTs(b.fecha) - fechaTs(a.fecha)));
         if (term) items = items.filter(e => String(e.rma).toLowerCase().includes(term));
         if (!items.length) {
             empty.style.display = 'block';
@@ -4884,7 +4983,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const firstDate = parseFechaHora(moves[0].fecha);
             const lastMove  = moves[moves.length - 1];
             const lastDate  = parseFechaHora(lastMove.fecha);
-            const completed = lastMove.fase === 'Final Test' || lastMove.fase === 'Finalizado';
+            /* Un RMA que sigue en el tablero en Final Test todavía NO está finalizado.
+               Se admite Final Test como final solo para RMAs antiguos ya retirados del tablero. */
+            const enTablero = rmaTracking.some(e => String(e.rma) === String(rma));
+            const completed = lastMove.fase === 'Finalizado' || (lastMove.fase === 'Final Test' && !enTablero);
             rmaTotals.push({
                 rma, start: firstDate, end: lastDate,
                 durationMs: (firstDate && lastDate) ? (lastDate - firstDate) : null,
@@ -4914,6 +5016,14 @@ document.addEventListener('DOMContentLoaded', () => {
        finalizados": normalmente el 01/10/2026, pero si el administrador pulsa
        "Borrar finalizados hasta hoy" la fecha de corte avanza hasta ese instante,
        ocultando de esa sección todo lo finalizado hasta entonces. */
+    /* Precio de reparación fijado en el momento de finalizar cada RMA (así cambiar el
+       precio hoy no reescribe el beneficio de meses pasados). */
+    function getRmaPrecioFijadoMap() {
+        const m = {};
+        rmaHistorial.forEach(h => { if (h.fase === 'Finalizado' && typeof h.precio === 'number') m[h.rma] = h.precio; });
+        return m;
+    }
+
     function getBeneficioEffectiveCutoff() {
         let cutoff = AUTO_BENEFICIO_START_DATE;
         if (rmaContabilidad.beneficioClearedAt) {
@@ -4929,6 +5039,7 @@ document.addEventListener('DOMContentLoaded', () => {
        anteriores": se recalculan solos cada vez que se finaliza un RMA. */
     function computeAutoMonthlyBeneficio() {
         const garantiaMap = getRmaGarantiaMap();
+        const precioFijado = getRmaPrecioFijadoMap();
         const { rmaTotals } = computeRmaStatsData();
         const finalizados = rmaTotals.filter(t => t.completed && t.end && t.end >= AUTO_BENEFICIO_START_DATE);
 
@@ -4940,7 +5051,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!byMonth[key]) byMonth[key] = { key, mes, anio, unidades: 0, precioTotal: 0, auto: true };
             byMonth[key].unidades++;
             const g = garantiaMap[t.rma] || null;
-            if (g === 'G' && rmaContabilidad.precioGarantia != null) byMonth[key].precioTotal += rmaContabilidad.precioGarantia;
+            if (precioFijado[t.rma] != null) byMonth[key].precioTotal += precioFijado[t.rma];
+            else if (g === 'G' && rmaContabilidad.precioGarantia != null) byMonth[key].precioTotal += rmaContabilidad.precioGarantia;
             else if (g === 'F' && rmaContabilidad.precioFueraGarantia != null) byMonth[key].precioTotal += rmaContabilidad.precioFueraGarantia;
         });
 
@@ -5337,6 +5449,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const garantiaFilter = rmaAccountingGarantiaSelect ? rmaAccountingGarantiaSelect.value : '';
         const garantiaMap = getRmaGarantiaMap();
         const cutoff = getBeneficioEffectiveCutoff();
+        const precioFijado = getRmaPrecioFijadoMap();
 
         const { rmaTotals } = computeRmaStatsData();
         const finalizados = rmaTotals.filter(t => {
@@ -5361,11 +5474,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 let precio = null;
                 if (g === 'G') {
                     countG++;
-                    precio = rmaContabilidad.precioGarantia;
+                    precio = precioFijado[t.rma] ?? rmaContabilidad.precioGarantia;
                     if (precio != null) totalG += precio; else faltaPrecio = true;
                 } else if (g === 'F') {
                     countF++;
-                    precio = rmaContabilidad.precioFueraGarantia;
+                    precio = precioFijado[t.rma] ?? rmaContabilidad.precioFueraGarantia;
                     if (precio != null) totalF += precio; else faltaPrecio = true;
                 } else {
                     countSinAsignar++;
@@ -5538,7 +5651,7 @@ document.addEventListener('DOMContentLoaded', () => {
        si corresponde). Los RMAs que se finalicen después SÍ se seguirán
        contando aquí automáticamente. */
     async function rmaBeneficioClearAll() {
-        if (!confirm('¿Borrar de "Beneficio de RMAs finalizados" todos los RMAs finalizados hasta este momento?\n\nNo se eliminan del historial general de movimientos, pero dejarán de contarse aquí (inclúyelos a mano en "Meses anteriores" si corresponde). Los RMAs que se finalicen a partir de ahora sí se seguirán contando automáticamente.\n\nEsta acción no se puede deshacer.')) return;
+        if (!confirm('¿Borrar de "Beneficio de RMAs finalizados" todos los RMAs finalizados hasta este momento?\n\nNo se eliminan del historial general de movimientos, pero dejarán de contarse en esta sección. La gráfica y "Meses anteriores" siguen calculándose solas desde octubre y no cambian. Los RMAs que se finalicen a partir de ahora sí se seguirán contando automáticamente.\n\nEsta acción no se puede deshacer.')) return;
         rmaContabilidad.beneficioClearedAt = new Date().toISOString();
         if (window._fbSetRmaContabilidad) await window._fbSetRmaContabilidad(rmaContabilidad);
         renderRmaAccountingBeneficio();
@@ -5965,6 +6078,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 window._fbGetAllDelegaciones ? window._fbGetAllDelegaciones() : Promise.resolve([])
             ]);
 
+            const fallidas = ['incidencias', 'incidencias_historial', 'rma_tracking', 'rma_historial', 'user_roles'].filter(c => window._fbLoadOk && window._fbLoadOk[c] === false);
+            if (fallidas.length) throw new Error('no se pudieron leer: ' + fallidas.join(', ') + '. No se genera la copia para no exportar datos vacíos.');
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, backupSheetFromArray(transporte), 'transporte');
             XLSX.utils.book_append_sheet(wb, backupSheetFromArray(incidenciasData), 'incidencias');
@@ -6078,6 +6193,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
+            window._fbForce = true;   // la restauración escribe aunque no se haya leído antes
             const tasks = [];
             if (transporte !== null && window._fbSetTransporte) tasks.push(window._fbSetTransporte(transporte));
             if (incidenciasData !== null && window._fbSetIncidencias) tasks.push(window._fbSetIncidencias(incidenciasData));
@@ -6088,7 +6204,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (userRolesData !== null && window._fbSetUserRoles) tasks.push(window._fbSetUserRoles(userRolesData));
             if (delegacionesData !== null && window._fbSetAllDelegaciones) tasks.push(window._fbSetAllDelegaciones(delegacionesData));
 
-            await Promise.all(tasks);
+            try { await Promise.all(tasks); } finally { window._fbForce = false; }
             setBackupStatus('Datos restaurados correctamente. Recargando la aplicación...', 'success');
             setTimeout(() => location.reload(), 1200);
         } catch (e) {
@@ -6218,6 +6334,7 @@ document.addEventListener('DOMContentLoaded', () => {
         startCryptoWatch();
         startTransporteRealtimeSync();
         loadIncidencias();
+        loadIncidenciasHistorial();   // necesario antes de poder borrar incidencias sin pisar el historial
         startRmaRealtimeSync();
         loadRmaHistorial();
         loadRmaContabilidad();
@@ -6227,8 +6344,8 @@ document.addEventListener('DOMContentLoaded', () => {
         stopCryptoWatch();
         if (transporteRealtimeUnsub) { try { transporteRealtimeUnsub(); } catch (e) {} transporteRealtimeUnsub = null; }
         if (rmaRealtimeUnsub)        { try { rmaRealtimeUnsub(); }        catch (e) {} rmaRealtimeUnsub = null; }
-        transportEntries = []; lastSyncedTransportRows = []; incidencias = [];
-        rmaTracking = []; rmaHistorial = []; userRoles = [];
+        transportEntries = []; lastSyncedTransportRows = []; incidencias = []; incidenciasHistorial = [];
+        rmaTracking = []; lastSyncedRmaRows = []; rmaHistorial = []; userRoles = [];
         rmaContabilidad = { precioGarantia: null, precioFueraGarantia: null, historico: [], beneficioClearedAt: null };
         if (window._fbCryptoLock) window._fbCryptoLock();
         try { renderTransport(); renderIncidencias(); renderRmaTracking(); renderDashboard(); renderDashBeneficioChart(); } catch (e) {}
