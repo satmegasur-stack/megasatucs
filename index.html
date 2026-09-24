@@ -9,7 +9,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-        import { getFirestore, doc, getDoc, setDoc, onSnapshot, runTransaction, collection, getDocs, writeBatch, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+        import { initializeFirestore, getDocFromServer, doc, getDoc, setDoc, onSnapshot, runTransaction, collection, getDocs, writeBatch, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
         import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, updatePassword, signOut, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
         const firebaseConfig = {
@@ -23,7 +23,10 @@
         };
 
         const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
+        /* Long-polling automático: tras un proxy, firewall, antivirus con inspección SSL o VPN, el
+           canal de streaming por defecto de Firestore puede quedar "colgado" sin dar error, y
+           entonces onSnapshot deja de avisar de cambios hasta recargar la página (F5). */
+        const db = initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
         const auth = getAuth(app);
         setPersistence(auth, browserLocalPersistence).catch(() => {});
 
@@ -463,6 +466,16 @@
                 return [];
             }
         };
+        const rowsGetFresh = (col) => async () => {
+            try {
+                const snap = await getDocFromServer(doc(db, col, 'entries'));
+                if (!snap.exists()) return [];
+                const d = await decodeDoc(snap.data(), col + '/entries');
+                return (d && d.rows) || [];
+            } catch (e) {
+                return null;   // null = no se pudo comprobar: NO se toca lo que hay en pantalla
+            }
+        };
         const rowsSet = (col, label) => async (rows) => {
             if (!window._fbForce && window._fbLoadOk[col] !== true) {
                 alert(`No se guardó "${label}": los datos aún no se han cargado bien. Recarga la página e inténtalo de nuevo.`);
@@ -621,6 +634,7 @@
         /* ── SEGUIMIENTO RMA Firebase ── */
         window._fbGetRmaTracking = rowsGet('rma_tracking', 'rma_tracking');
         window._fbSetRmaTracking = rowsSet('rma_tracking', 'rma_tracking');
+        window._fbGetRmaTrackingFresh = rowsGetFresh('rma_tracking');
 
         /* Escucha en tiempo real los cambios de fase del Seguimiento RMA: cualquier
            usuario que mueva un RMA de columna lo actualiza al instante para todos
@@ -677,6 +691,14 @@
         };
 
         window._fbListenInventario = rowsListen('inventario', 'inventario');
+
+        /* ── AVISO DE NUEVA VERSIÓN (config/version: solo un número, sin datos sensibles) ── */
+        window._fbPublishVersion = async (v) => { await setDoc(doc(db, 'config', 'version'), { v }); };
+        window._fbListenVersion = (onChange, onError) => onSnapshot(
+            doc(db, 'config', 'version'),
+            (snap) => onChange(snap.exists() ? snap.data() : null),
+            (e) => { console.error('Firebase onSnapshot version error:', e); if (onError) onError(e); }
+        );
 
         window._firebaseReady = true;
         document.dispatchEvent(new Event('firebaseReady'));
@@ -1379,6 +1401,13 @@
 
         /* ── Funciones exclusivas del usuario Master (cambiar clave de cifrado, importar/exportar datos) ── */
         body.not-master .master-only { display: none !important; }
+
+        /* ── Aviso de nueva versión ── */
+        #update-modal-overlay { z-index: 3000; align-items: center; }
+        #update-modal-overlay .modal-box { max-width: 420px; text-align: center; }
+        #update-modal-overlay .modal-body { display: flex; flex-direction: column; gap: 14px; align-items: center; }
+        #update-modal-overlay .modal-body p { margin: 0; line-height: 1.5; }
+        .update-later-btn { background: none; border: none; color: var(--secondary-color); cursor: pointer; font-size: 0.9rem; text-decoration: underline; }
 
         /* ══════════════════════════════════════════
            HISTORIAL DE SEGUIMIENTO RMA
@@ -2236,6 +2265,15 @@
                     </div>
                 </div>
 
+                <div class="settings-backup-section master-only">
+                    <h3 class="settings-backup-title"><i class="fas fa-sync-alt"></i> Nueva versión</h3>
+                    <p class="settings-backup-desc">Tras publicar una actualización, avisa a los demás usuarios con la aplicación abierta: les aparecerá un cuadro para recargar la página y cargar la versión nueva.</p>
+                    <div class="settings-backup-actions">
+                        <button id="settings-notify-update-btn" class="rma-add-btn"><i class="fas fa-bullhorn"></i> Avisar de nueva versión</button>
+                    </div>
+                    <div id="settings-update-status" class="settings-backup-status"></div>
+                </div>
+
                 <div class="settings-backup-section">
                     <h3 class="settings-backup-title"><i class="fas fa-shield-alt"></i> Cifrado de datos</h3>
                     <p class="settings-backup-desc">Todos los datos se guardan cifrados en Firebase (AES-256-GCM) con la clave de cifrado; solo quien la conoce puede leerlos. Si se pierde la clave, los datos no se pueden recuperar.</p>
@@ -2507,6 +2545,19 @@
     </div>
 
     <div id="copy-notification" class="copy-notification"></div>
+
+    <div id="update-modal-overlay" class="modal-overlay">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h2><i class="fas fa-sync-alt"></i> Nueva versión disponible</h2>
+            </div>
+            <div class="modal-body">
+                <p>Hay una versión nueva de la aplicación. Pulsa el botón para recargar la página y usarla. Tus datos ya están guardados en la nube.</p>
+                <button id="update-reload-btn" class="rma-add-btn"><i class="fas fa-redo"></i> Actualizar ahora</button>
+                <button id="update-later-btn" class="update-later-btn">Más tarde</button>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -4067,41 +4118,103 @@ document.addEventListener('DOMContentLoaded', () => {
     /* Base del merge: última versión conocida de Firestore (ya migrada, para que las
        entradas sin cambios locales se comparen como iguales). */
     let lastSyncedRmaRows = [];
+    let lastRmaRawJson = '';      // última versión (cruda) de Firestore aplicada en pantalla
+    let rmaSyncVer = 0;           // sube con cada guardado/aplicación: descarta lecturas que llegan tarde
     async function saveRmaTracking() {
         if (!window._fbMergeRmaTracking) return;
-        const merged = await window._fbMergeRmaTracking(rmaTracking, lastSyncedRmaRows);
-        if (!merged) { alert('No se pudo guardar el seguimiento RMA. Revisa la conexión y vuelve a intentarlo.'); throw new Error('merge-failed'); }
-        rmaTracking = merged.map(e => migrateRma(e));
-        lastSyncedRmaRows = JSON.parse(JSON.stringify(rmaTracking));
+        rmaSyncVer++;
+        try {
+            const merged = await window._fbMergeRmaTracking(rmaTracking, lastSyncedRmaRows);
+            if (!merged) { alert('No se pudo guardar el seguimiento RMA. Revisa la conexión y vuelve a intentarlo.'); throw new Error('merge-failed'); }
+            rmaTracking = merged.map(e => migrateRma(e));
+            lastSyncedRmaRows = JSON.parse(JSON.stringify(rmaTracking));
+            lastRmaRawJson = JSON.stringify(merged);
+        } finally { rmaSyncVer++; }
     }
 
-    async function loadRmaTracking() {
-        const raw = window._fbGetRmaTracking ? await window._fbGetRmaTracking() : [];
-        rmaTracking = raw.map(e => migrateRma(e));
+    /* Aplica en pantalla una versión de Firestore (desde el listener, una recarga o un resync) */
+    function applyRmaRows(rows) {
+        rmaSyncVer++;
+        lastRmaRawJson = JSON.stringify(rows);
+        rmaTracking = rows.map(e => migrateRma(e));
         lastSyncedRmaRows = JSON.parse(JSON.stringify(rmaTracking));
         renderRmaTracking();
     }
 
+    async function loadRmaTracking() {
+        const raw = window._fbGetRmaTracking ? await window._fbGetRmaTracking() : [];
+        applyRmaRows(raw);
+    }
+
     /* ── Sincronización en tiempo real del Seguimiento RMA ──
-       En cuanto cualquier usuario mueve un RMA de fase, Firebase avisa a todos
-       los demás paneles abiertos al instante (sin recargar ni esperar) para que
-       siempre se vea la fase real y actualizada del RMA. */
+       1) Listener (onSnapshot): avisa al instante cuando otro usuario mueve un RMA.
+       2) Red de seguridad: si el listener muere o se queda "colgado" sin avisar (red, portátil
+          que se duerme, pestaña en segundo plano…), se vuelve a leer del servidor al recuperar
+          el foco / la conexión y cada minuto, y solo se repinta si algo ha cambiado.
+       3) Si el listener da error se descarta y se vuelve a crear (antes se quedaba muerto). */
     let rmaRealtimeUnsub = null;
+    let rmaListenerAlive = false;
+    let rmaListenerRetry = null;
+    let rmaResyncBusy = false;
+
+    function stopRmaListener() {
+        clearTimeout(rmaListenerRetry); rmaListenerRetry = null;
+        rmaListenerAlive = false;
+        if (rmaRealtimeUnsub) { try { rmaRealtimeUnsub(); } catch (e) {} rmaRealtimeUnsub = null; }
+    }
+
+    async function resyncRmaTracking() {
+        if (rmaResyncBusy || !window._fbGetRmaTrackingFresh) return;
+        if (!(window._fbCryptoReady && window._fbCryptoReady())) return;
+        rmaResyncBusy = true;
+        try {
+            const ver = rmaSyncVer;
+            const rows = await window._fbGetRmaTrackingFresh();
+            /* Si mientras tanto guardamos o llegó un cambio del listener, esta lectura ya es vieja */
+            if (rows && ver === rmaSyncVer && JSON.stringify(rows) !== lastRmaRawJson) applyRmaRows(rows);
+        } finally { rmaResyncBusy = false; }
+        if (!rmaListenerAlive && !rmaListenerRetry) scheduleRmaListenerRetry(0);
+    }
+
+    function scheduleRmaListenerRetry(ms) {
+        clearTimeout(rmaListenerRetry);
+        rmaListenerRetry = setTimeout(() => {
+            rmaListenerRetry = null;
+            if (!rmaListenerAlive && window._fbCryptoReady && window._fbCryptoReady()) startRmaRealtimeSync();
+        }, ms);
+    }
+
     function startRmaRealtimeSync() {
+        stopRmaListener();                       // evita listeners duplicados
         if (!window._fbListenRmaTracking) { loadRmaTracking(); return; }
-        rmaRealtimeUnsub = window._fbListenRmaTracking((rows) => {
-            rmaTracking = rows.map(e => migrateRma(e));
-            lastSyncedRmaRows = JSON.parse(JSON.stringify(rmaTracking));
-            renderRmaTracking();
-        }, () => {
-            /* Si falla la conexión en tiempo real, seguimos funcionando con carga manual/periódica */
-            loadRmaTracking();
+        rmaListenerAlive = true;
+        rmaRealtimeUnsub = window._fbListenRmaTracking(applyRmaRows, () => {
+            rmaListenerAlive = false;            // un listener con error ya no vuelve a avisar
+            if (rmaRealtimeUnsub) { try { rmaRealtimeUnsub(); } catch (e) {} rmaRealtimeUnsub = null; }
+            resyncRmaTracking();                 // lectura segura (si falla, no vacía el tablero)
+            scheduleRmaListenerRetry(10000);     // y se vuelve a crear el listener
         });
     }
 
-    /* Refresco periódico de seguridad cada 5 minutos, por si el listener en
-       tiempo real se hubiera desconectado silenciosamente */
-    setInterval(() => { if (!rmaRealtimeUnsub && window._fbCryptoReady && window._fbCryptoReady()) loadRmaTracking(); }, 5 * 60 * 1000);
+    /* Ahorro de lecturas: el listener en tiempo real casi no consume (solo cuenta cuando hay un
+       cambio real). El resync manual es solo una red de seguridad, así que:
+       - al volver a la pestaña / recuperar el foco se relee, pero como máximo 1 vez cada 60 s
+         (focus y visibilitychange saltan a la vez y se agrupan);
+       - el sondeo periódico es cada 10 min y solo si el listener NO está sano o la pestaña
+         lleva mucho tiempo sin sincronizar. */
+    const RMA_RESYNC_MIN_GAP_MS = 60 * 1000;
+    const RMA_POLL_EVERY_MS     = 10 * 60 * 1000;
+    let rmaLastResyncAt = 0;
+    function resyncRmaThrottled() {
+        const now = Date.now();
+        if (now - rmaLastResyncAt < RMA_RESYNC_MIN_GAP_MS) return;
+        rmaLastResyncAt = now;
+        resyncRmaTracking();
+    }
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) resyncRmaThrottled(); });
+    window.addEventListener('focus', resyncRmaThrottled);
+    window.addEventListener('online', () => { rmaLastResyncAt = Date.now(); resyncRmaTracking(); if (!rmaListenerAlive) scheduleRmaListenerRetry(0); });
+    setInterval(() => { if (!document.hidden) { rmaLastResyncAt = Date.now(); resyncRmaTracking(); } }, RMA_POLL_EVERY_MS);
 
     /* ── Filtro de fases visibles en el tablero (checkboxes) ── */
     const RMA_PHASE_FILTER_KEY = 'rmaVisiblePhases';
@@ -6330,7 +6443,56 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     /* ── Carga / descarga de datos: solo con sesión iniciada y clave disponible ── */
+    /* ── Aviso de nueva versión ──
+       El primer valor que llega es la referencia (no avisa); cualquier cambio posterior
+       significa que un Master ha pulsado "Avisar de nueva versión". */
+    let versionUnsub = null, versionBaseline;
+    function startVersionWatch() {
+        if (versionUnsub || !window._fbListenVersion) return;
+        versionBaseline = undefined;
+        versionUnsub = window._fbListenVersion((data) => {
+            const v = (data && data.v) || 0;
+            if (versionBaseline === undefined) { versionBaseline = v; return; }
+            if (v === versionBaseline) return;
+            versionBaseline = v;
+            document.getElementById('update-modal-overlay').classList.add('show');
+        });
+    }
+    function stopVersionWatch() {
+        if (versionUnsub) { try { versionUnsub(); } catch (e) {} versionUnsub = null; }
+        versionBaseline = undefined;
+    }
+    document.getElementById('update-reload-btn').addEventListener('click', () => {
+        /* El parámetro _v fuerza al navegador a pedir el HTML nuevo en vez de usar la caché */
+        const u = new URL(location.href);
+        u.searchParams.set('_v', String(Date.now()));
+        location.replace(u.toString());
+    });
+    document.getElementById('update-later-btn').addEventListener('click', () => {
+        document.getElementById('update-modal-overlay').classList.remove('show');
+    });
+    document.getElementById('settings-notify-update-btn').addEventListener('click', async () => {
+        if (!isMaster || !window._fbPublishVersion) return;
+        const statusEl = document.getElementById('settings-update-status');
+        const btn = document.getElementById('settings-notify-update-btn');
+        const prev = versionBaseline;
+        const v = Date.now();
+        versionBaseline = v;   // así este equipo no se avisa a sí mismo
+        btn.disabled = true;
+        try {
+            await window._fbPublishVersion(v);
+            statusEl.className = 'settings-backup-status success';
+            statusEl.textContent = 'Aviso enviado a los usuarios con la aplicación abierta.';
+        } catch (e) {
+            versionBaseline = prev;
+            statusEl.className = 'settings-backup-status error';
+            statusEl.textContent = 'No se pudo enviar el aviso. Revisa la conexión y las reglas de Firestore (config/version).';
+        }
+        btn.disabled = false;
+    });
+
     function startDataSync() {
+        startVersionWatch();
         startCryptoWatch();
         startTransporteRealtimeSync();
         loadIncidencias();
@@ -6341,9 +6503,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function stopDataSync() {
+        stopVersionWatch();
+        document.getElementById('update-modal-overlay').classList.remove('show');
         stopCryptoWatch();
         if (transporteRealtimeUnsub) { try { transporteRealtimeUnsub(); } catch (e) {} transporteRealtimeUnsub = null; }
-        if (rmaRealtimeUnsub)        { try { rmaRealtimeUnsub(); }        catch (e) {} rmaRealtimeUnsub = null; }
+        stopRmaListener();
         transportEntries = []; lastSyncedTransportRows = []; incidencias = []; incidenciasHistorial = [];
         rmaTracking = []; lastSyncedRmaRows = []; rmaHistorial = []; userRoles = [];
         rmaContabilidad = { precioGarantia: null, precioFueraGarantia: null, historico: [], beneficioClearedAt: null };
