@@ -232,7 +232,7 @@ import {
     initializeFirestore, doc, getDoc, setDoc, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import {
-    getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, setPersistence, browserLocalPersistence
+    getAuth, onAuthStateChanged, signInWithEmailAndPassword, signInAnonymously, signOut, setPersistence, browserLocalPersistence
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
 /* ══════════════════════════════════════════════════════════════
@@ -271,6 +271,22 @@ setPersistence(auth, browserLocalPersistence).catch(() => {});
 
 const dataApp = initializeApp(dataConfig, 'TRData');
 const dataDb  = initializeFirestore(dataApp, { experimentalAutoDetectLongPolling: true });
+/* El proyecto de datos (portatilsattr) es distinto del proyecto de usuarios (portatilsatms),
+   así que no comparte la sesión de Firebase Auth. Para que sus reglas de seguridad puedan
+   exigir "usuario autenticado" sin tener que dar de alta cada cuenta en dos proyectos,
+   entramos aquí con una sesión anónima (los datos que se leen/escriben siguen yendo
+   siempre cifrados: el inicio de sesión anónimo solo abre la puerta, no da acceso a nada
+   en claro). Requiere tener activado el proveedor "Anónimo" en Authentication de ese
+   proyecto, y unas reglas de Firestore como:
+     allow read, write: if request.auth != null;
+*/
+const dataAuth = getAuth(dataApp);
+let dataAuthReady = null;
+function ensureDataAuth() {
+    if (dataAuth.currentUser) return Promise.resolve();
+    if (!dataAuthReady) dataAuthReady = signInAnonymously(dataAuth).catch((e) => { dataAuthReady = null; throw e; });
+    return dataAuthReady;
+}
 
 const MASTER_EMAIL = 'agamarra@megasur.es';
 
@@ -401,8 +417,16 @@ const TR_AAD = 'total_repair/entries';
 const trRef = doc(dataDb, 'total_repair', 'entries');
 let trLoadOk = false;
 
+function dataAuthErrorMessage(e) {
+    if (e && e.code === 'auth/admin-restricted-operation') {
+        return 'El acceso anónimo no está activado en el proyecto de datos (Authentication → Sign-in method → Anónimo).';
+    }
+    return 'No se pudo conectar con la base de datos de Total Repair: ' + ((e && e.code) || (e && e.message) || 'error desconocido');
+}
+
 async function trGetAll() {
     try {
+        await ensureDataAuth();
         const snap = await getDoc(trRef);
         if (!snap.exists()) { trLoadOk = true; return []; }
         const d = await decodeDoc(snap.data(), TR_AAD);
@@ -411,14 +435,23 @@ async function trGetAll() {
     } catch (e) {
         trLoadOk = false;
         console.error('Error leyendo Total Repair:', e);
+        alert(dataAuthErrorMessage(e));
         return [];
     }
 }
 async function trSaveAll(rows) {
     if (!trLoadOk) { alert('Los datos aún no se han cargado bien. Recarga la página e inténtalo de nuevo.'); throw new Error('not-loaded'); }
-    await setDoc(trRef, await encodeDoc({ rows }, TR_AAD));
+    try {
+        await ensureDataAuth();
+        await setDoc(trRef, await encodeDoc({ rows }, TR_AAD));
+    } catch (e) {
+        console.error('Error guardando Total Repair:', e);
+        alert(dataAuthErrorMessage(e));
+        throw e;
+    }
 }
 function trListen(onChange) {
+    ensureDataAuth().catch((e) => { trLoadOk = false; console.error('Error de autenticación anónima:', e); alert(dataAuthErrorMessage(e)); });
     return onSnapshot(trRef, async (snap) => {
         try {
             let rows = [];
