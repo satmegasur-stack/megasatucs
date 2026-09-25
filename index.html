@@ -725,17 +725,26 @@
         .header-right { display: flex; gap: 10px; margin-left: auto; }
 
         .file-label,
-        #delegaciones-button, #recogidas-button, #recortar-button,
-        #plantilla-button, #transporte-button, #incidencias-button, #rma-tracking-button, #settings-button, #ucs-button {
+        #delegaciones-button, #recogidas-button,
+        #transporte-button, #incidencias-button, #rma-tracking-button, #settings-button, #ucs-button {
             background-color: var(--primary-color); color: white; padding: 8px 12px;
             border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 0.92rem;
             transition: background-color 0.3s ease; border: none; font-family: inherit;
         }
         .file-label:hover, #delegaciones-button:hover, #recogidas-button:hover,
-        #recortar-button:hover, #plantilla-button:hover, #transporte-button:hover,
+        #transporte-button:hover,
         #incidencias-button:hover, #rma-tracking-button:hover, #settings-button:hover, #ucs-button:hover { background-color: #0056b3; }
         #delegaciones-button:disabled, #recogidas-button:disabled { background-color: var(--secondary-color); cursor: not-allowed; opacity: 0.6; }
         #file-input { display: none; }
+
+        /* ── Fila secundaria: Plantilla Correos / Recortar (aparece al cargar archivo) ── */
+        .header-secondary-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: -10px; margin-bottom: 20px; }
+        #plantilla-button, #recortar-button {
+            background-color: var(--warning-color); color: white; padding: 8px 12px;
+            border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 0.92rem;
+            transition: background-color 0.3s ease; border: none; font-family: inherit;
+        }
+        #plantilla-button:hover, #recortar-button:hover { background-color: #e0690a; }
 
         /* Badge on Transporte / Incidencias / Seguimiento RMA buttons */
         #transporte-button, #incidencias-button, #rma-tracking-button { position: relative; }
@@ -769,6 +778,7 @@
         .dash-title-warning { color: var(--warning-color); }
         .dash-title-danger  { color: var(--danger-color); }
         .dash-title-garantia { color: #6f42c1; }
+        .dash-title-ticket  { color: #e83e8c; }
         .dash-stat-card {
             background: #f8f9fa; border: 1px solid var(--border-color); border-radius: 8px;
             padding: 14px 16px;
@@ -1543,9 +1553,14 @@
             .header-right, .header > div[style*="display: flex"] { justify-content: center; }
 
             .file-label,
-            #delegaciones-button, #recogidas-button, #recortar-button,
-            #plantilla-button, #transporte-button, #incidencias-button,
+            #delegaciones-button, #recogidas-button,
+            #transporte-button, #incidencias-button,
             #rma-tracking-button, #settings-button, #ucs-button {
+                flex: 1 1 auto; text-align: center; font-size: 0.85rem; padding: 9px 10px;
+            }
+
+            .header-secondary-row { justify-content: center; }
+            #plantilla-button, #recortar-button {
                 flex: 1 1 auto; text-align: center; font-size: 0.85rem; padding: 9px 10px;
             }
 
@@ -1617,11 +1632,14 @@
 
             .header-right { gap: 6px; }
             .file-label,
-            #delegaciones-button, #recogidas-button, #recortar-button,
-            #plantilla-button, #transporte-button, #incidencias-button,
+            #delegaciones-button, #recogidas-button,
+            #transporte-button, #incidencias-button,
             #rma-tracking-button, #settings-button, #ucs-button {
                 font-size: 0.8rem; padding: 8px 8px;
             }
+
+            .header-secondary-row { gap: 6px; }
+            #plantilla-button, #recortar-button { font-size: 0.8rem; padding: 8px 8px; }
 
             .modal-header h2 { font-size: 0.98rem; }
             .modal-header h2 i { font-size: 0.9rem; }
@@ -1736,12 +1754,10 @@
         </div>
 
         <div class="header-right">
-            <button id="plantilla-button">Plantilla Correos</button>
             <button id="incidencias-button">
                 <i class="fas fa-exclamation-triangle"></i> Incidencias
                 <span id="incidencias-badge" class="transport-badge hidden">0</span>
             </button>
-            <button id="recortar-button">Recortar</button>
             <button id="transporte-button">
                 <i class="fas fa-truck"></i> Transporte
                 <span id="transport-badge" class="transport-badge hidden">0</span>
@@ -1760,6 +1776,12 @@
                 <i class="fas fa-cog"></i>
             </button>
         </div>
+    </div>
+
+    <!-- ── FILA SECUNDARIA (Plantilla Correos / Recortar): oculta hasta cargar archivo ── -->
+    <div class="header-secondary-row" id="header-secondary-row" style="display: none;">
+        <button id="plantilla-button">Plantilla Correos</button>
+        <button id="recortar-button">Recortar</button>
     </div>
 
     <!-- ── MAIN DATA CARD ── -->
@@ -1800,6 +1822,10 @@
                     </div>
                     <h3 class="dashboard-title dash-title-danger"><i class="fas fa-hourglass-half"></i> Más de 30 días en "En espera"</h3>
                     <div class="dash-list" id="dash-list-30dias">
+                        <div class="dash-list-empty">Cargando…</div>
+                    </div>
+                    <h3 class="dashboard-title dash-title-ticket"><i class="fas fa-ticket"></i> Tickets Abiertos</h3>
+                    <div class="dash-list" id="dash-list-tickets">
                         <div class="dash-list-empty">Cargando…</div>
                     </div>
                 </div>
@@ -2568,6 +2594,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const delegacionesButton = document.getElementById('delegaciones-button');
     const recogidasButton    = document.getElementById('recogidas-button');
     const recortarButton     = document.getElementById('recortar-button');
+    const headerSecondaryRow = document.getElementById('header-secondary-row');
     const deleteButton       = document.getElementById('delete-button');
     const plantillaButton    = document.getElementById('plantilla-button');
     const transporteButton   = document.getElementById('transporte-button');
@@ -2702,6 +2729,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const dashEnReparacionEl  = document.getElementById('dash-en-reparacion');
     const dashList2diasEl     = document.getElementById('dash-list-2dias');
     const dashList30diasEl    = document.getElementById('dash-list-30dias');
+    const dashListTicketsEl   = document.getElementById('dash-list-tickets');
     const dashPieEl           = document.getElementById('dash-pie');
     const dashPieTotalEl      = document.getElementById('dash-pie-total');
     const dashPieLegendEl     = document.getElementById('dash-pie-legend');
@@ -3997,6 +4025,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 displayEntry(0);
                 delegacionesButton.style.display = 'inline-block';
                 recogidasButton.style.display    = 'inline-block';
+                headerSecondaryRow.style.display = 'flex';
             } catch (err) {
                 console.error(err);
                 showNotification('No se pudo leer el archivo. ¿Es un Excel o CSV válido?');
@@ -5306,9 +5335,9 @@ document.addEventListener('DOMContentLoaded', () => {
             ? list2dias.map(e => `<div class="dash-list-item"><span class="dash-item-rma">${esc(e.rma)}</span><span class="dash-item-fase">${esc(e.fase)}</span><span class="dash-item-dias">${Math.floor(e.dias)}d</span></div>`).join('')
             : '<div class="dash-list-empty">Ningún equipo supera los 2 días</div>';
 
-        /* ── Listado: más de 30 días en "En espera" ── */
+        /* ── Listado: más de 30 días en "En espera" (los Tickets tienen su propio listado aparte) ── */
         const list30dias = rmaTracking
-            .filter(e => e.fase === 'En espera' || e.fase === RMA_TICKET_PHASE)
+            .filter(e => e.fase === 'En espera')
             .map(e => {
                 const d = parseFechaHora(e.fecha);
                 const dias = d ? (now - d.getTime()) / 86400000 : 0;
@@ -5320,6 +5349,20 @@ document.addEventListener('DOMContentLoaded', () => {
         dashList30diasEl.innerHTML = list30dias.length
             ? list30dias.map(e => `<div class="dash-list-item"><span class="dash-item-rma">${esc(e.rma)}</span><span class="dash-item-dias">${Math.floor(e.dias)}d</span></div>`).join('')
             : '<div class="dash-list-empty">Ningún equipo supera los 30 días en espera</div>';
+
+        /* ── Listado: Tickets Abiertos (RMAs marcados con el check "Ticket" en su Info) ── */
+        const listTickets = rmaTracking
+            .filter(e => e.fase === RMA_TICKET_PHASE)
+            .map(e => {
+                const d = parseFechaHora(e.fecha);
+                const dias = d ? (now - d.getTime()) / 86400000 : 0;
+                return { rma: e.rma, dias };
+            })
+            .sort((a, b) => b.dias - a.dias);
+
+        dashListTicketsEl.innerHTML = listTickets.length
+            ? listTickets.map(e => `<div class="dash-list-item"><span class="dash-item-rma">${esc(e.rma)}</span><span class="dash-item-dias">${Math.floor(e.dias)}d</span></div>`).join('')
+            : '<div class="dash-list-empty">Ningún RMA con ticket abierto</div>';
 
         /* ── Listado: nuevos equipos en garantía con más de 30 minutos en "En espera" ── */
         const listGarantia = rmaTracking
