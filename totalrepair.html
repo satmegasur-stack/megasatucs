@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Total Repair</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+<style>
+    :root {
+        --primary-color: #007bff;
+        --secondary-color: #6c757d;
+        --success-color: #28a745;
+        --danger-color: #dc3545;
+        --warning-color: #fd7e14;
+        --background-color: #f8f9fa;
+        --card-background: #ffffff;
+        --border-color: #dee2e6;
+        --text-color: #495057;
+        --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        --col-rmas: #007bff;
+        --col-usuario: #6f42c1;
+        --col-presupuesto: #fd7e14;
+        --col-piezas: #20c997;
+        --col-fabricante: #6c757d;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+        margin: 0; font-family: var(--font-family); background: var(--background-color);
+        color: var(--text-color); display: flex; flex-direction: column; min-height: 100vh;
+    }
+    button { font-family: inherit; cursor: pointer; }
+    input, textarea, select { font-family: inherit; }
+
+    /* ── Pantallas de acceso (login / clave de cifrado / sin acceso) ── */
+    .gate-screen {
+        flex: 1; display: flex; align-items: center; justify-content: center; padding: 20px;
+    }
+    .gate-box {
+        background: var(--card-background); border: 1px solid var(--border-color); border-radius: 10px;
+        padding: 32px; width: 100%; max-width: 380px; box-shadow: 0 4px 18px rgba(0,0,0,0.08); text-align: center;
+    }
+    .gate-box h1 { font-size: 1.3rem; margin: 0 0 6px; }
+    .gate-box .gate-sub { color: var(--secondary-color); font-size: 0.85rem; margin-bottom: 20px; }
+    .gate-box input[type="email"], .gate-box input[type="password"], .gate-box input[type="text"] {
+        width: 100%; padding: 10px 12px; margin-bottom: 10px; border: 1px solid var(--border-color);
+        border-radius: 6px; font-size: 0.95rem;
+    }
+    .gate-box label.chk { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; color: var(--secondary-color); margin: 4px 0 14px; text-align: left; }
+    .gate-btn {
+        width: 100%; padding: 10px; border: none; border-radius: 6px; background: var(--primary-color);
+        color: #fff; font-weight: bold; font-size: 0.95rem;
+    }
+    .gate-btn:hover { background: #0069d9; }
+    .gate-btn.secondary { background: var(--secondary-color); margin-top: 8px; }
+    .gate-btn.secondary:hover { background: #565e64; }
+    .gate-btn:disabled { opacity: 0.6; cursor: default; }
+    .gate-error { color: var(--danger-color); font-size: 0.85rem; margin-top: 10px; min-height: 1.1em; }
+    .gate-hint { color: var(--secondary-color); font-size: 0.8rem; margin-top: 14px; line-height: 1.4; }
+
+    /* ── Cabecera de la app ── */
+    .tr-header {
+        background: var(--card-background); border-bottom: 1px solid var(--border-color);
+        padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;
+    }
+    .tr-header h1 { font-size: 1.15rem; margin: 0; display: flex; align-items: center; gap: 8px; }
+    .tr-header h1 i { color: var(--primary-color); }
+    .tr-header-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .tr-user-email { font-size: 0.82rem; color: var(--secondary-color); }
+    .tr-btn {
+        border: none; border-radius: 6px; padding: 8px 14px; font-size: 0.85rem; font-weight: 600;
+        background: var(--primary-color); color: #fff; display: inline-flex; align-items: center; gap: 6px;
+    }
+    .tr-btn:hover { background: #0069d9; }
+    .tr-btn.secondary { background: var(--secondary-color); }
+    .tr-btn.secondary:hover { background: #565e64; }
+    .tr-btn.danger { background: var(--danger-color); }
+    .tr-search {
+        padding: 8px 12px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.85rem; min-width: 180px;
+    }
+
+    /* ── Tablero ── */
+    .tr-board {
+        flex: 1; display: flex; gap: 14px; padding: 16px 20px; overflow-x: auto; align-items: flex-start;
+    }
+    .tr-col {
+        background: #fff; border-radius: 10px; min-width: 260px; max-width: 300px; flex: 1 0 260px;
+        border-top: 4px solid var(--secondary-color); box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+        display: flex; flex-direction: column; max-height: calc(100vh - 150px);
+    }
+    .tr-col-head {
+        padding: 10px 12px; font-weight: 700; font-size: 0.85rem; display: flex; align-items: center; justify-content: space-between;
+        border-bottom: 1px solid var(--border-color);
+    }
+    .tr-col-count {
+        background: var(--background-color); border-radius: 20px; padding: 1px 9px; font-size: 0.75rem; color: var(--secondary-color);
+    }
+    .tr-col-body { padding: 10px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 10px; }
+    .tr-col-empty { text-align: center; color: #adb5bd; font-size: 0.78rem; padding: 14px 4px; }
+
+    .tr-card {
+        background: var(--background-color); border: 1px solid var(--border-color); border-radius: 8px;
+        padding: 10px 12px; font-size: 0.85rem;
+    }
+    .tr-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .tr-card-rma { font-weight: 700; color: var(--text-color); }
+    .tr-card-del { border: none; background: none; color: var(--secondary-color); font-size: 0.85rem; padding: 2px 4px; }
+    .tr-card-del:hover { color: var(--danger-color); }
+    .tr-card textarea {
+        width: 100%; min-height: 44px; resize: vertical; border: 1px solid var(--border-color); border-radius: 5px;
+        padding: 6px 8px; font-size: 0.8rem; margin-bottom: 8px; background: #fff;
+    }
+    .tr-card-meta { font-size: 0.7rem; color: #adb5bd; margin-bottom: 6px; }
+    .tr-card-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .tr-move-btn {
+        border: none; border-radius: 5px; padding: 5px 8px; font-size: 0.72rem; font-weight: 600;
+        background: #fff; border: 1px solid var(--border-color); color: var(--text-color);
+    }
+    .tr-move-btn:hover { background: var(--primary-color); color: #fff; border-color: var(--primary-color); }
+    .tr-hist-toggle { border: none; background: none; color: var(--secondary-color); font-size: 0.7rem; text-decoration: underline; padding: 2px 0; }
+    .tr-hist-list { font-size: 0.7rem; color: var(--secondary-color); margin: 4px 0 0; padding-left: 16px; display: none; }
+    .tr-hist-list.show { display: block; }
+
+    /* ── Modales ── */
+    .tr-modal-overlay {
+        display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 100;
+        align-items: center; justify-content: center; padding: 16px;
+    }
+    .tr-modal-overlay.show { display: flex; }
+    .tr-modal-box {
+        background: #fff; border-radius: 10px; width: 100%; max-width: 380px; overflow: hidden;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    }
+    .tr-modal-head {
+        padding: 14px 18px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;
+    }
+    .tr-modal-head h3 { margin: 0; font-size: 1rem; }
+    .tr-modal-head button { border: none; background: none; font-size: 1rem; color: var(--secondary-color); }
+    .tr-modal-body { padding: 16px 18px; }
+    .tr-modal-body input, .tr-modal-body textarea {
+        width: 100%; padding: 9px 10px; border: 1px solid var(--border-color); border-radius: 6px;
+        font-size: 0.88rem; margin-bottom: 10px;
+    }
+    .tr-modal-body textarea { min-height: 70px; resize: vertical; }
+    .tr-modal-foot { padding: 12px 18px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 8px; }
+    .tr-phase-choice-btn {
+        display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; padding: 10px 12px;
+        border: 1px solid var(--border-color); border-radius: 6px; background: #fff; margin-bottom: 8px; font-size: 0.88rem;
+    }
+    .tr-phase-choice-btn:hover { background: var(--primary-color); color: #fff; border-color: var(--primary-color); }
+
+    .tr-hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<!-- ══════════ LOGIN ══════════ -->
+<div class="gate-screen" id="login-screen">
+    <div class="gate-box">
+        <h1><i class="fas fa-wrench"></i> Total Repair</h1>
+        <p class="gate-sub">Inicia sesión con tu cuenta habitual.</p>
+        <input type="email" id="tr-login-email" placeholder="Correo electrónico" autocomplete="username">
+        <input type="password" id="tr-login-password" placeholder="Contraseña" autocomplete="current-password">
+        <button class="gate-btn" id="tr-login-btn"><i class="fas fa-sign-in-alt"></i> Entrar</button>
+        <div class="gate-error" id="tr-login-error"></div>
+    </div>
+</div>
+
+<!-- ══════════ DESBLOQUEO DE LA CLAVE DE CIFRADO ══════════ -->
+<div class="gate-screen tr-hidden" id="crypto-screen">
+    <div class="gate-box">
+        <h1><i class="fas fa-lock"></i> Clave de cifrado</h1>
+        <p class="gate-sub">Es la misma clave que usas en la aplicación principal.</p>
+        <input type="password" id="tr-crypto-pass" placeholder="Clave de cifrado" autocomplete="off">
+        <label class="chk"><input type="checkbox" id="tr-crypto-remember" checked> Recordar en este equipo</label>
+        <button class="gate-btn" id="tr-crypto-btn"><i class="fas fa-unlock"></i> Desbloquear</button>
+        <button class="gate-btn secondary" id="tr-crypto-logout-btn"><i class="fas fa-sign-out-alt"></i> Cerrar sesión</button>
+        <div class="gate-error" id="tr-crypto-error"></div>
+    </div>
+</div>
+
+<!-- ══════════ SIN ACCESO ══════════ -->
+<div class="gate-screen tr-hidden" id="denied-screen">
+    <div class="gate-box">
+        <h1><i class="fas fa-ban"></i> Sin acceso</h1>
+        <p class="gate-sub">Tu cuenta no tiene permiso para usar Total Repair. Contacta con el administrador.</p>
+        <button class="gate-btn secondary" id="tr-denied-logout-btn"><i class="fas fa-sign-out-alt"></i> Cerrar sesión</button>
+    </div>
+</div>
+
+<!-- ══════════ APP ══════════ -->
+<div class="tr-hidden" id="app-root" style="display:flex; flex-direction:column; flex:1; min-height:100vh;">
+    <div class="tr-header">
+        <h1><i class="fas fa-wrench"></i> Total Repair</h1>
+        <div class="tr-header-right">
+            <input type="text" id="tr-search" class="tr-search" placeholder="Buscar RMA u observación…">
+            <span class="tr-user-email" id="tr-user-email"></span>
+            <button class="tr-btn" id="tr-add-btn"><i class="fas fa-plus"></i> Añadir RMA</button>
+            <button class="tr-btn secondary" id="tr-close-btn"><i class="fas fa-times"></i> Cerrar</button>
+        </div>
+    </div>
+    <div class="tr-board" id="tr-board"></div>
+</div>
+
+<!-- Modal: añadir RMA -->
+<div class="tr-modal-overlay" id="tr-add-modal">
+    <div class="tr-modal-box">
+        <div class="tr-modal-head"><h3><i class="fas fa-plus"></i> Nuevo RMA</h3><button id="tr-add-close"><i class="fas fa-times"></i></button></div>
+        <div class="tr-modal-body">
+            <input type="text" id="tr-add-rma" placeholder="Número de RMA">
+            <textarea id="tr-add-obs" placeholder="Observaciones"></textarea>
+            <div class="gate-error" id="tr-add-error"></div>
+        </div>
+        <div class="tr-modal-foot">
+            <button class="tr-btn secondary" id="tr-add-cancel">Cancelar</button>
+            <button class="tr-btn" id="tr-add-confirm"><i class="fas fa-check"></i> Crear</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: elegir fase -->
+<div class="tr-modal-overlay" id="tr-phase-modal">
+    <div class="tr-modal-box">
+        <div class="tr-modal-head"><h3><i class="fas fa-random"></i> Cambiar de fase</h3><button id="tr-phase-close"><i class="fas fa-times"></i></button></div>
+        <div class="tr-modal-body" id="tr-phase-body"></div>
+    </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import {
+    initializeFirestore, doc, getDoc, setDoc, onSnapshot
+} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import {
+    getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, setPersistence, browserLocalPersistence
+} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+
+/* ══════════════════════════════════════════════════════════════
+   Proyecto PRINCIPAL (portatilsatms): aquí viven las cuentas de usuario
+   (Firebase Auth), la clave de cifrado (config/crypto) y los roles
+   (user_roles). Total Repair NO guarda datos aquí: solo lee/valida.
+   ══════════════════════════════════════════════════════════════ */
+const primaryConfig = {
+    apiKey: "AIzaSyBSCWdU5cwGIqbvCP359EEc385D4uOqoKU",
+    authDomain: "portatilsatms.firebaseapp.com",
+    projectId: "portatilsatms",
+    storageBucket: "portatilsatms.firebasestorage.app",
+    messagingSenderId: "865839974213",
+    appId: "1:865839974213:web:a5a87df856e926daf2a02c",
+    measurementId: "G-7M08KXJBSJ"
+};
+
+/* ══════════════════════════════════════════════════════════════
+   Proyecto de DATOS de Total Repair (portatilsattr): aquí se guardan,
+   siempre cifrados, los RMAs de esta aplicación.
+   ══════════════════════════════════════════════════════════════ */
+const dataConfig = {
+    apiKey: "AIzaSyDFhngwon_9IZTcmyRYWTiWdkSY4L_hlNs",
+    authDomain: "portatilsattr.firebaseapp.com",
+    projectId: "portatilsattr",
+    storageBucket: "portatilsattr.firebasestorage.app",
+    messagingSenderId: "104701294591",
+    appId: "1:104701294591:web:1afdffd4b1299aed02d9ca",
+    measurementId: "G-G04J7BQ82E"
+};
+
+const primaryApp = initializeApp(primaryConfig, 'TRPrimary');
+const primaryDb  = initializeFirestore(primaryApp, { experimentalAutoDetectLongPolling: true });
+const auth       = getAuth(primaryApp);
+setPersistence(auth, browserLocalPersistence).catch(() => {});
+
+const dataApp = initializeApp(dataConfig, 'TRData');
+const dataDb  = initializeFirestore(dataApp, { experimentalAutoDetectLongPolling: true });
+
+const MASTER_EMAIL = 'agamarra@megasur.es';
+
+/* ══════════════════════════════════════════════════════════════
+   CIFRADO — idéntico al de la aplicación principal, para poder
+   desbloquear con la misma clave y leer/escribir en el mismo formato
+   { enc:1, z, iv, ct }. La clave nunca se guarda en Firebase.
+   ══════════════════════════════════════════════════════════════ */
+const PBKDF2_ITERATIONS = 600000;
+const _te = new TextEncoder();
+const _td = new TextDecoder();
+let cryptoKeys = null;
+
+function b64enc(bytes) {
+    let s = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(s);
+}
+function b64dec(str) {
+    const s = atob(str);
+    const out = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+    return out;
+}
+function cryptoSupported() { return !!(window.crypto && window.crypto.subtle); }
+async function pipeBytes(bytes, stream) {
+    const w = stream.writable.getWriter();
+    w.write(bytes).catch(() => {});
+    w.close().catch(() => {});
+    return new Uint8Array(await new Response(stream.readable).arrayBuffer());
+}
+async function deriveMaster(passphrase, saltBytes) {
+    const base = await crypto.subtle.importKey('raw', _te.encode(String(passphrase).normalize('NFKC')), 'PBKDF2', false, ['deriveBits']);
+    return new Uint8Array(await crypto.subtle.deriveBits(
+        { name: 'PBKDF2', salt: saltBytes, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' }, base, 256));
+}
+async function keysFromMaster(master) {
+    const hk = await crypto.subtle.importKey('raw', master, 'HKDF', false, ['deriveKey']);
+    const salt = new Uint8Array(0);
+    const aes = await crypto.subtle.deriveKey(
+        { name: 'HKDF', hash: 'SHA-256', salt, info: _te.encode('portatilsat-aes-v1') },
+        hk, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+    const hmac = await crypto.subtle.deriveKey(
+        { name: 'HKDF', hash: 'SHA-256', salt, info: _te.encode('portatilsat-hmac-v1') },
+        hk, { name: 'HMAC', hash: 'SHA-256', length: 256 }, false, ['sign']);
+    return { aes, hmac };
+}
+async function encryptWith(keys, obj, aad) {
+    let bytes = _te.encode(JSON.stringify(obj));
+    let z = 0;
+    if (bytes.length > 256 && typeof CompressionStream !== 'undefined') {
+        try { bytes = await pipeBytes(bytes, new CompressionStream('gzip')); z = 1; } catch (e) { bytes = _te.encode(JSON.stringify(obj)); z = 0; }
+    }
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: _te.encode(aad) }, keys.aes, bytes);
+    return { enc: 1, z, iv: b64enc(iv), ct: b64enc(new Uint8Array(ct)) };
+}
+async function decryptWith(keys, payload, aad) {
+    let bytes = new Uint8Array(await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: b64dec(payload.iv), additionalData: _te.encode(aad) }, keys.aes, b64dec(payload.ct)));
+    if (payload.z === 1) bytes = await pipeBytes(bytes, new DecompressionStream('gzip'));
+    return JSON.parse(_td.decode(bytes));
+}
+function isEncrypted(data) { return !!(data && data.enc === 1 && typeof data.ct === 'string' && typeof data.iv === 'string'); }
+function requireKeys() { if (!cryptoKeys) throw new Error('Clave de cifrado no disponible'); return cryptoKeys; }
+const encodeDoc = (obj, aad) => encryptWith(requireKeys(), obj, aad);
+const decodeDoc = async (data, aad) => isEncrypted(data) ? decryptWith(requireKeys(), data, aad) : data;
+
+const CRYPTO_CHECK_AAD = 'config/crypto';
+const REMEMBER_KEY = 'enc_key_v1';   // misma clave de localStorage que la app principal
+const cryptoRef = () => doc(primaryDb, 'config', 'crypto');
+
+async function cryptoUnlock(passphrase, remember) {
+    if (!cryptoSupported()) throw new Error('nocrypto');
+    const snap = await getDoc(cryptoRef());
+    if (!snap.exists()) throw new Error('nosetup');
+    const { salt, check } = snap.data();
+    const master = await deriveMaster(passphrase, b64dec(salt));
+    const keys = await keysFromMaster(master);
+    try {
+        const r = await decryptWith(keys, check, CRYPTO_CHECK_AAD);
+        if (!r || r.ok !== true) throw new Error('bad');
+    } catch (e) { throw new Error('wrong'); }
+    cryptoKeys = keys;
+    if (remember) { try { localStorage.setItem(REMEMBER_KEY, JSON.stringify({ salt, master: b64enc(master) })); } catch (e) {} }
+}
+async function cryptoTryRemembered() {
+    if (!cryptoSupported()) return false;
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(REMEMBER_KEY)); } catch (e) {}
+    if (!saved || !saved.master) return false;
+    let snap;
+    try { snap = await getDoc(cryptoRef()); } catch (e) { return false; }
+    if (!snap.exists() || snap.data().salt !== saved.salt) return false;
+    try {
+        const keys = await keysFromMaster(b64dec(saved.master));
+        const r = await decryptWith(keys, snap.data().check, CRYPTO_CHECK_AAD);
+        if (!r || r.ok !== true) throw new Error('bad');
+        cryptoKeys = keys;
+        return true;
+    } catch (e) { return false; }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ROLES (leídos del proyecto principal, colección user_roles)
+   ══════════════════════════════════════════════════════════════ */
+async function getRoleForEmail(email) {
+    const e = (email || '').toLowerCase();
+    if (e === MASTER_EMAIL) return 'master';
+    try {
+        const snap = await getDoc(doc(primaryDb, 'user_roles', 'user_roles'));
+        if (!snap.exists()) return 'tecnico';
+        const d = await decodeDoc(snap.data(), 'user_roles/user_roles');
+        const rows = (d && d.rows) || [];
+        const found = rows.find(u => (u.email || '').toLowerCase() === e);
+        if (found && found.role === 'admin') return 'admin';
+        if (found && found.role === 'totalrepair') return 'totalrepair';
+        return 'tecnico';
+    } catch (e) {
+        return 'tecnico';
+    }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   DATOS de Total Repair (proyecto portatilsattr, doc total_repair/entries)
+   ══════════════════════════════════════════════════════════════ */
+const TR_AAD = 'total_repair/entries';
+const trRef = doc(dataDb, 'total_repair', 'entries');
+let trLoadOk = false;
+
+async function trGetAll() {
+    try {
+        const snap = await getDoc(trRef);
+        if (!snap.exists()) { trLoadOk = true; return []; }
+        const d = await decodeDoc(snap.data(), TR_AAD);
+        trLoadOk = true;
+        return (d && d.rows) || [];
+    } catch (e) {
+        trLoadOk = false;
+        console.error('Error leyendo Total Repair:', e);
+        return [];
+    }
+}
+async function trSaveAll(rows) {
+    if (!trLoadOk) { alert('Los datos aún no se han cargado bien. Recarga la página e inténtalo de nuevo.'); throw new Error('not-loaded'); }
+    await setDoc(trRef, await encodeDoc({ rows }, TR_AAD));
+}
+function trListen(onChange) {
+    return onSnapshot(trRef, async (snap) => {
+        try {
+            let rows = [];
+            if (snap.exists()) {
+                const d = await decodeDoc(snap.data(), TR_AAD);
+                rows = (d && d.rows) || [];
+            }
+            trLoadOk = true;
+            onChange(rows);
+        } catch (e) {
+            trLoadOk = false;
+            console.error('Error descifrando Total Repair:', e);
+        }
+    }, (e) => { trLoadOk = false; console.error('Error de sincronización Total Repair:', e); });
+}
+
+/* ══════════════════════════════════════════════════════════════
+   FASES
+   NOTA: de momento solo están definidas las fases indicadas hasta ahora.
+   Pendiente: el resto del flujo (fases posteriores a estas) se añadirá
+   cuando se concreten. Basta con ampliar este array para incorporarlas.
+   ══════════════════════════════════════════════════════════════ */
+const PHASES = [
+    { key: 'RMAs',          label: 'RMAs',                                   color: 'var(--col-rmas)' },
+    { key: 'Usuario',       label: 'Usuario',                                color: 'var(--col-usuario)' },
+    { key: 'Presupuesto',   label: 'Pendiente aceptación de presupuesto',    color: 'var(--col-presupuesto)' },
+    { key: 'Piezas',        label: 'Pendiente de piezas',                    color: 'var(--col-piezas)' },
+    { key: 'Fabricante',    label: 'Enviado fabricante',                     color: 'var(--col-fabricante)' }
+];
+const NEXT_PHASE_CHOICES = ['Usuario', 'Presupuesto', 'Piezas', 'Fabricante']; // opciones al continuar desde "RMAs"
+function phaseInfo(key) { return PHASES.find(p => p.key === key) || PHASES[0]; }
+
+/* ══════════════════════════════════════════════════════════════
+   ESTADO Y UI
+   ══════════════════════════════════════════════════════════════ */
+let entries = [];
+let currentEmail = '';
+let currentRole = '';
+let searchTerm = '';
+let trUnsub = null;
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function showScreen(name) {
+    ['login-screen', 'crypto-screen', 'denied-screen', 'app-root'].forEach(id => {
+        $(id).classList.toggle('tr-hidden', id !== name);
+    });
+    $('app-root').style.display = (name === 'app-root') ? 'flex' : 'none';
+}
+
+function fmtDate(ts) {
+    if (!ts) return '';
+    try { return new Date(ts).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; }
+}
+
+function renderBoard() {
+    const board = $('tr-board');
+    const term = searchTerm.trim().toLowerCase();
+    const filtered = term
+        ? entries.filter(e => (e.rma || '').toLowerCase().includes(term) || (e.observaciones || '').toLowerCase().includes(term))
+        : entries;
+
+    board.innerHTML = PHASES.map(ph => {
+        const items = filtered.filter(e => e.phase === ph.key).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+        return `
+        <div class="tr-col" style="border-top-color:${ph.color};">
+            <div class="tr-col-head"><span>${esc(ph.label)}</span><span class="tr-col-count">${items.length}</span></div>
+            <div class="tr-col-body">
+                ${items.length ? items.map(e => cardHtml(e, ph)).join('') : `<div class="tr-col-empty">Sin RMAs</div>`}
+            </div>
+        </div>`;
+    }).join('');
+
+    board.querySelectorAll('textarea[data-obs-id]').forEach(ta => {
+        ta.addEventListener('blur', () => saveObservaciones(ta.dataset.obsId, ta.value));
+    });
+}
+
+function cardHtml(e, ph) {
+    const hist = (e.history || []).slice().reverse();
+    return `
+    <div class="tr-card">
+        <div class="tr-card-top">
+            <span class="tr-card-rma"><i class="fas fa-barcode"></i> ${esc(e.rma || '(sin número)')}</span>
+            <button class="tr-card-del" title="Eliminar" onclick="trDeleteEntry('${e.id}')"><i class="fas fa-trash"></i></button>
+        </div>
+        <textarea data-obs-id="${e.id}" placeholder="Observaciones…">${esc(e.observaciones || '')}</textarea>
+        <div class="tr-card-meta">Actualizado: ${fmtDate(e.updatedAt)}</div>
+        <div class="tr-card-actions">
+            <button class="tr-move-btn" onclick="trOpenPhaseModal('${e.id}')"><i class="fas fa-random"></i> Cambiar fase</button>
+        </div>
+        ${hist.length ? `
+            <button class="tr-hist-toggle" onclick="trToggleHist('${e.id}')">Ver historial (${hist.length})</button>
+            <ul class="tr-hist-list" id="tr-hist-${e.id}">
+                ${hist.map(h => `<li>${esc(phaseInfo(h.phase).label)} — ${fmtDate(h.at)}</li>`).join('')}
+            </ul>` : ''}
+    </div>`;
+}
+
+window.trToggleHist = function(id) {
+    const el = $('tr-hist-' + id);
+    if (el) el.classList.toggle('show');
+};
+
+async function saveObservaciones(id, value) {
+    const idx = entries.findIndex(e => e.id === id);
+    if (idx === -1) return;
+    if (entries[idx].observaciones === value) return;
+    entries[idx].observaciones = value;
+    entries[idx].updatedAt = Date.now();
+    try { await trSaveAll(entries); } catch (e) { /* ya se avisa en trSaveAll */ }
+}
+
+window.trDeleteEntry = async function(id) {
+    if (!confirm('¿Eliminar este RMA de Total Repair?')) return;
+    entries = entries.filter(e => e.id !== id);
+    try { await trSaveAll(entries); } catch (e) {}
+    renderBoard();
+};
+
+/* ── Cambiar de fase (mismo método que Seguimiento RMA: lista de botones) ── */
+let phaseModalEntryId = null;
+window.trOpenPhaseModal = function(id) {
+    phaseModalEntryId = id;
+    const entry = entries.find(e => e.id === id);
+    if (!entry) return;
+    const choices = PHASES.filter(p => p.key !== entry.phase);
+    $('tr-phase-body').innerHTML = choices.map(p =>
+        `<button class="tr-phase-choice-btn" onclick="trChoosePhase('${p.key}')"><i class="fas fa-arrow-right"></i> ${esc(p.label)}</button>`
+    ).join('');
+    $('tr-phase-modal').classList.add('show');
+};
+window.trChoosePhase = async function(newPhase) {
+    const idx = entries.findIndex(e => e.id === phaseModalEntryId);
+    if (idx === -1) { $('tr-phase-modal').classList.remove('show'); return; }
+    entries[idx].phase = newPhase;
+    entries[idx].updatedAt = Date.now();
+    entries[idx].history = entries[idx].history || [];
+    entries[idx].history.push({ phase: newPhase, at: Date.now() });
+    try { await trSaveAll(entries); } catch (e) {}
+    $('tr-phase-modal').classList.remove('show');
+    renderBoard();
+};
+$('tr-phase-close').addEventListener('click', () => $('tr-phase-modal').classList.remove('show'));
+$('tr-phase-modal').addEventListener('click', (e) => { if (e.target === $('tr-phase-modal')) $('tr-phase-modal').classList.remove('show'); });
+
+/* ── Añadir RMA: se crea en fase "RMAs" y, al continuar, se pregunta la fase siguiente ── */
+$('tr-add-btn').addEventListener('click', () => {
+    $('tr-add-rma').value = '';
+    $('tr-add-obs').value = '';
+    $('tr-add-error').textContent = '';
+    $('tr-add-modal').classList.add('show');
+    setTimeout(() => $('tr-add-rma').focus(), 50);
+});
+$('tr-add-close').addEventListener('click', () => $('tr-add-modal').classList.remove('show'));
+$('tr-add-cancel').addEventListener('click', () => $('tr-add-modal').classList.remove('show'));
+$('tr-add-modal').addEventListener('click', (e) => { if (e.target === $('tr-add-modal')) $('tr-add-modal').classList.remove('show'); });
+
+$('tr-add-confirm').addEventListener('click', async () => {
+    const rma = $('tr-add-rma').value.trim();
+    const observaciones = $('tr-add-obs').value.trim();
+    if (!rma) { $('tr-add-error').textContent = 'Introduce el número de RMA'; return; }
+    const id = (crypto.randomUUID ? crypto.randomUUID() : 'tr-' + Date.now() + '-' + Math.random().toString(16).slice(2));
+    const now = Date.now();
+    const entry = { id, rma, observaciones, phase: 'RMAs', createdAt: now, updatedAt: now, history: [{ phase: 'RMAs', at: now }] };
+    entries.push(entry);
+    try {
+        await trSaveAll(entries);
+    } catch (e) { entries.pop(); return; }
+    $('tr-add-modal').classList.remove('show');
+    renderBoard();
+
+    /* Preguntar la fase siguiente (Usuario / Presupuesto / Piezas / Fabricante) */
+    phaseModalEntryId = id;
+    $('tr-phase-body').innerHTML = NEXT_PHASE_CHOICES.map(key => {
+        const p = phaseInfo(key);
+        return `<button class="tr-phase-choice-btn" onclick="trChoosePhase('${p.key}')"><i class="fas fa-arrow-right"></i> ${esc(p.label)}</button>`;
+    }).join('') + `<button class="tr-btn secondary" style="width:100%; margin-top:4px;" onclick="document.getElementById('tr-phase-modal').classList.remove('show')">Dejarlo en "RMAs" por ahora</button>`;
+    $('tr-phase-modal').classList.add('show');
+});
+
+/* ── Buscador ── */
+$('tr-search').addEventListener('input', (e) => { searchTerm = e.target.value; renderBoard(); });
+
+/* ── Cerrar ── */
+$('tr-close-btn').addEventListener('click', () => {
+    if (window.opener) { window.close(); } else if (window._fbTRSignOut) { window._fbTRSignOut(); }
+});
+
+/* ══════════════════════════════════════════════════════════════
+   LOGIN / DESBLOQUEO / ARRANQUE
+   ══════════════════════════════════════════════════════════════ */
+window._fbTRSignOut = () => signOut(auth);
+
+async function ensureDataKey() {
+    if (cryptoKeys) return true;
+    if (await cryptoTryRemembered()) return true;
+    showScreen('crypto-screen');
+    return false;
+}
+
+async function startApp() {
+    if (trUnsub) { trUnsub(); trUnsub = null; }
+    entries = await trGetAll();
+    renderBoard();
+    trUnsub = trListen((rows) => { entries = rows; renderBoard(); });
+}
+
+async function handleAuthChange(user) {
+    if (!user) {
+        cryptoKeys = null;
+        showScreen('login-screen');
+        $('tr-login-error').textContent = '';
+        return;
+    }
+    currentEmail = user.email || '';
+    const unlocked = await ensureDataKey();
+    if (!unlocked) return;
+
+    currentRole = await getRoleForEmail(currentEmail);
+    if (!['master', 'admin', 'totalrepair'].includes(currentRole)) {
+        showScreen('denied-screen');
+        return;
+    }
+
+    $('tr-user-email').textContent = currentEmail + (currentRole === 'master' ? ' (Master)' : currentRole === 'admin' ? ' (Administrador)' : ' (Total Repair)');
+    showScreen('app-root');
+    startApp();
+}
+
+$('tr-login-btn').addEventListener('click', async () => {
+    const email = $('tr-login-email').value.trim();
+    const password = $('tr-login-password').value;
+    $('tr-login-error').textContent = '';
+    if (!email || !password) { $('tr-login-error').textContent = 'Introduce correo y contraseña'; return; }
+    $('tr-login-btn').disabled = true;
+    try {
+        await signInWithEmailAndPassword(auth, email, password);
+    } catch (err) {
+        $('tr-login-error').textContent = 'Correo o contraseña incorrectos';
+    }
+    $('tr-login-btn').disabled = false;
+});
+$('tr-login-password').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('tr-login-btn').click(); });
+
+$('tr-crypto-btn').addEventListener('click', async () => {
+    const pass = $('tr-crypto-pass').value;
+    const remember = $('tr-crypto-remember').checked;
+    $('tr-crypto-error').textContent = '';
+    if (!pass) { $('tr-crypto-error').textContent = 'Introduce la clave de cifrado'; return; }
+    $('tr-crypto-btn').disabled = true;
+    try {
+        await cryptoUnlock(pass, remember);
+        $('tr-crypto-pass').value = '';
+        await handleAuthChange(auth.currentUser);
+    } catch (err) {
+        const m = err && err.message;
+        if (m === 'wrong') $('tr-crypto-error').textContent = 'Clave de cifrado incorrecta';
+        else if (m === 'nosetup') $('tr-crypto-error').textContent = 'Todavía no se ha configurado la clave de cifrado en la aplicación principal';
+        else if (m === 'nocrypto') $('tr-crypto-error').textContent = 'Este navegador no permite el cifrado necesario';
+        else $('tr-crypto-error').textContent = 'No se pudo desbloquear';
+    }
+    $('tr-crypto-btn').disabled = false;
+});
+$('tr-crypto-pass').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('tr-crypto-btn').click(); });
+$('tr-crypto-logout-btn').addEventListener('click', () => signOut(auth));
+$('tr-denied-logout-btn').addEventListener('click', () => signOut(auth));
+
+onAuthStateChanged(auth, handleAuthChange);
+</script>
+</body>
+</html>
