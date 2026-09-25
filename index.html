@@ -1769,9 +1769,6 @@
             <button id="ucs-button" title="Abrir aplicación UCS">
                 <i class="fas fa-tools"></i> UCS
             </button>
-            <button id="tr-button" title="Abrir Total Repair en una ventana aparte">
-                <i class="fas fa-wrench"></i> Total Repair
-            </button>
             <button id="inv-button" title="Abrir inventario de piezas">
                 <i class="fas fa-boxes"></i> Inventario
             </button>
@@ -2279,7 +2276,6 @@
                     <select id="settings-new-role">
                         <option value="tecnico">Técnico (solo Seguimiento RMA)</option>
                         <option value="admin">Administrador (acceso completo)</option>
-                        <option value="totalrepair">Total Repair (solo esa app)</option>
                     </select>
                     <button id="settings-create-btn" class="rma-add-btn"><i class="fas fa-user-plus"></i> Crear usuario</button>
                 </div>
@@ -2810,8 +2806,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let rmaInfoEditingId  = null; // id de la nota de info que se está editando
 
     /* Roles: 'master' (único: este correo; acceso completo + cambiar la clave de cifrado + importar/exportar datos),
-       'admin' (acceso completo, sin lo anterior), 'tecnico' (solo Seguimiento RMA) y
-       'totalrepair' (solo la app independiente Total Repair, ver totalrepair.html). */
+       'admin' (acceso completo, sin lo anterior) y 'tecnico' (solo Seguimiento RMA). */
     const MASTER_EMAIL = 'agamarra@megasur.es';
     let isMaster = false;
     window._isMaster = () => isMaster;
@@ -5861,15 +5856,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const e = (email || '').toLowerCase();
         if (e === MASTER_EMAIL) return 'master';
         const found = userRoles.find(u => (u.email || '').toLowerCase() === e);
-        if (found && found.role === 'admin') return 'admin';
-        if (found && found.role === 'totalrepair') return 'totalrepair';
-        return 'tecnico';
-    }
-
-    function roleLabel(role) {
-        if (role === 'admin') return 'Administrador';
-        if (role === 'totalrepair') return 'Total Repair';
-        return 'Técnico';
+        return (found && found.role === 'admin') ? 'admin' : 'tecnico';
     }
 
     function renderSettingsUsers() {
@@ -5898,7 +5885,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 <select class="settings-user-role" onchange="settingsChangeRole(${idx}, this.value)">
                     <option value="tecnico" ${u.role === 'tecnico' ? 'selected' : ''}>Técnico</option>
                     <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Administrador</option>
-                    <option value="totalrepair" ${u.role === 'totalrepair' ? 'selected' : ''}>Total Repair</option>
                 </select>
                 <button class="rma-card-del" title="Quitar de la lista" onclick="settingsRemoveUser(${idx})"><i class="fas fa-trash"></i></button>
             </div>`).join('');
@@ -5918,7 +5904,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!userRoles[idx]) return;
         userRoles[idx].role = role;
         await saveUserRoles();
-        showNotification(`Rol de ${userRoles[idx].email} actualizado a ${roleLabel(role)}`);
+        showNotification(`Rol de ${userRoles[idx].email} actualizado a ${role === 'admin' ? 'Administrador' : 'Técnico'}`);
     };
 
     window.settingsTogglePass = function(idx) {
@@ -6163,17 +6149,6 @@ document.addEventListener('DOMContentLoaded', () => {
     ucsModalOverlay.addEventListener('click', (e) => { if (e.target === ucsModalOverlay) ucsModalOverlay.classList.remove('show'); });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ucsModalOverlay.classList.contains('show')) ucsModalOverlay.classList.remove('show'); });
 
-    /* Total Repair: aplicación independiente (comparte usuario/contraseña y clave de
-       cifrado con esta app, pero guarda sus datos en otra base de datos). Master y
-       administradores la abren en una ventana aparte; los usuarios con rol "Total
-       Repair" son enviados directamente a ella a pantalla completa (ver handleAuthChange). */
-    const trButton = document.getElementById('tr-button');
-    if (trButton) {
-        trButton.addEventListener('click', () => {
-            window.open('totalrepair.html', 'TotalRepair', 'width=1300,height=850,menubar=no,toolbar=no,location=no,status=no');
-        });
-    }
-
     settingsButton.addEventListener('click', () => {
         settingsModalOverlay.classList.add('show');
         settingsError.textContent = '';
@@ -6202,7 +6177,7 @@ document.addEventListener('DOMContentLoaded', () => {
             renderSettingsUsers();
             settingsNewEmail.value = '';
             settingsNewPassword.value = '';
-            showNotification(`Usuario ${email} creado como ${roleLabel(role)}`);
+            showNotification(`Usuario ${email} creado como ${role === 'admin' ? 'Administrador' : 'Técnico'}`);
         } catch (err) {
             if (err.code === 'auth/email-already-in-use') settingsError.textContent = 'Ya existe una cuenta con ese correo';
             else if (err.code === 'auth/invalid-email') settingsError.textContent = 'Correo electrónico no válido';
@@ -6675,14 +6650,6 @@ document.addEventListener('DOMContentLoaded', () => {
             startDataSync();
             await loadUserRoles();
             const role = getRoleForEmail(currentUserEmail);
-
-            /* Los usuarios con rol "Total Repair" no ven esta aplicación: se les
-               envía directamente (navegación completa, no modal) a la app independiente. */
-            if (role === 'totalrepair') {
-                window.location.replace('totalrepair.html');
-                return;
-            }
-
             isMaster = role === 'master';
             isAdmin  = isMaster || role === 'admin';
 
