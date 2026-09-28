@@ -729,7 +729,7 @@
                 const mine = ++seq;
                 try {
                     const d = snap.exists() ? await decodeDoc(snap.data(), TOTAL_AAD) : null;
-                    if (mine === seq) onChange((d && d.rows) || []);
+                    if (mine === seq) onChange((d && d.rows) || [], (d && d.tecnicos) || []);
                 } catch (e) { console.error('Total: error al descifrar', e); if (onError) onError(e); }
             }, (e) => { console.error('Total: onSnapshot', e); if (onError) onError(e); });
         };
@@ -742,8 +742,21 @@
                 const d = snap.exists() ? await decodeDoc(snap.data(), TOTAL_AAD) : null;
                 const rows = (d && d.rows) || [];
                 const out = fn(rows) || rows;
-                tx.set(totalRowsRef(), await encodeDoc({ rows: out }, TOTAL_AAD));
+                tx.set(totalRowsRef(), await encodeDoc({ ...(d || {}), rows: out }, TOTAL_AAD));
                 return out;
+            });
+        };
+
+        /* Técnicos de Seguimiento RMA Total: van en el mismo documento (mismo cifrado y mismas reglas).
+           fn recibe { rows, tecnicos } y puede modificarlos in situ. */
+        window._fbTotalMutateAll = async (fn) => {
+            if (!cryptoKeys) throw new Error('locked');
+            return runTransaction(db, async (tx) => {
+                const snap = await tx.get(totalRowsRef());
+                const d = snap.exists() ? await decodeDoc(snap.data(), TOTAL_AAD) : null;
+                const state = { ...(d || {}), rows: (d && d.rows) || [], tecnicos: (d && d.tecnicos) || [] };
+                fn(state);
+                tx.set(totalRowsRef(), await encodeDoc(state, TOTAL_AAD));
             });
         };
 
@@ -1800,6 +1813,7 @@
     <div class="modal-box">
         <div class="modal-header">
             <h2><i class="fas fa-tasks"></i> Seguimiento RMA Total</h2>
+            <button id="total-config-btn" class="modal-close-btn" title="Configuración: técnicos" style="display:none;"><i class="fas fa-cog"></i></button>
         </div>
         <div class="modal-body">
             <div class="rma-add-form">
@@ -1853,6 +1867,23 @@
                 <button id="total-recibido-cancel" class="inc-add-update-btn" style="background: var(--secondary-color);">Cancelar</button>
                 <button id="total-recibido-ok" class="inc-add-update-btn"><i class="fas fa-check"></i> Confirmar</button>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- Total: configuración de técnicos (solo francisco@megasur.es) -->
+<div id="total-config-overlay" class="modal-overlay">
+    <div class="modal-box" style="max-width:460px;">
+        <div class="modal-header">
+            <h2><i class="fas fa-cog"></i> Técnicos (Total)</h2>
+            <button id="total-config-close" class="modal-close-btn" title="Cerrar"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="rma-add-form">
+                <input type="text" id="total-tec-input" placeholder="Nombre del nuevo técnico..." autocomplete="off">
+                <button id="total-tec-add" class="rma-add-btn"><i class="fas fa-plus"></i> Añadir</button>
+            </div>
+            <div id="total-tec-list" style="margin-top:12px;"></div>
         </div>
     </div>
 </div>
@@ -6832,6 +6863,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const totalCryptoBtn   = document.getElementById('total-crypto-btn');
     const totalCryptoMsg   = document.getElementById('total-crypto-msg');
     let totalRows = [];
+    let totalTecnicos = [];   // [{ id, nombre }] — técnicos asignables en Seguimiento RMA Total
+    const TOTAL_ADMIN_EMAIL = 'francisco@megasur.es';
+    const totalIsConfigAdmin = () => (currentUserEmail || '').trim().toLowerCase() === TOTAL_ADMIN_EMAIL;
     let totalUnsub = null;
     let totalCryptoResolve = null;
 
@@ -6934,13 +6968,13 @@ document.addEventListener('DOMContentLoaded', () => {
         totalRecibidoId = id;
         totalRecibidoTitle.textContent = r.rma;
         totalRecibidoSetGar(r.garantia === 'G' || r.garantia === 'F' ? r.garantia : null);
-        const tecnicos = userRoles.filter(u => u && u.role === 'tecnico' && u.email).map(u => u.email);
+        const tecnicos = totalTecnicos.map(t => t.nombre).filter(Boolean).sort((a, b) => a.localeCompare(b, 'es'));
         totalRecibidoTecnico.innerHTML = '<option value="">— Selecciona un técnico —</option>' +
             tecnicos.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
         totalRecibidoFase.innerHTML = TOTAL_PHASES.filter(p => p.key !== 'Pendiente Recibir')
             .map(p => `<option value="${esc(p.key)}">${esc(p.key)}</option>`).join('');
         totalRecibidoFase.value = 'Revisión';
-        totalRecibidoError.textContent = tecnicos.length ? '' : 'No hay usuarios de tipo Técnico. Créalos desde la gestión de usuarios.';
+        totalRecibidoError.textContent = tecnicos.length ? '' : 'No hay técnicos dados de alta. Pídele a ' + TOTAL_ADMIN_EMAIL + ' que los añada desde el botón de configuración.';
         totalRecibidoOverlay.classList.add('show');
     };
     document.getElementById('total-recibido-close').addEventListener('click', closeTotalRecibido);
@@ -6959,6 +6993,68 @@ document.addEventListener('DOMContentLoaded', () => {
             return rows;
         }, `RMA ${r ? r.rma : ''} recibido y asignado a ${tecnico} (${fase})`);
     });
+
+    /* ── Configuración de técnicos (solo francisco@megasur.es): añadir / modificar / eliminar ── */
+    const totalConfigBtn     = document.getElementById('total-config-btn');
+    const totalConfigOverlay = document.getElementById('total-config-overlay');
+    const totalTecInput      = document.getElementById('total-tec-input');
+    const totalTecList       = document.getElementById('total-tec-list');
+
+    function renderTotalTecnicos() {
+        const list = totalTecnicos.slice().sort((a, b) => String(a.nombre).localeCompare(String(b.nombre), 'es'));
+        totalTecList.innerHTML = list.length ? list.map(t => `
+            <div style="display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid var(--border-color);">
+                <span style="flex:1;"><i class="fas fa-user-cog" style="color:var(--secondary-color);"></i> ${esc(t.nombre)}</span>
+                <button class="modal-close-btn" title="Modificar" onclick="totalTecEdit('${t.id}')"><i class="fas fa-pen"></i></button>
+                <button class="modal-close-btn" title="Eliminar" onclick="totalTecDelete('${t.id}')"><i class="fas fa-trash"></i></button>
+            </div>`).join('')
+            : '<div class="rma-card-empty">Aún no hay técnicos</div>';
+    }
+    async function totalTecMutate(fn, okMsg) {
+        if (!totalIsConfigAdmin()) return;
+        try { await window._fbTotalMutateAll(fn); if (okMsg) showNotification(okMsg); }
+        catch (e) { console.error(e); alert('No se pudo guardar el cambio en los técnicos. Revisa la conexión e inténtalo de nuevo.'); }
+    }
+    async function totalTecAdd() {
+        const nombre = totalTecInput.value.trim();
+        if (!nombre) return;
+        totalTecInput.value = '';
+        let dup = false;
+        await totalTecMutate(st => {
+            if (st.tecnicos.some(t => String(t.nombre).trim().toLowerCase() === nombre.toLowerCase())) { dup = true; return; }
+            st.tecnicos.push({ id: genId('tec'), nombre });
+        });
+        showNotification(dup ? `El técnico ${nombre} ya existe` : `Técnico ${nombre} añadido`);
+    }
+    window.totalTecEdit = async (id) => {
+        const t = totalTecnicos.find(x => x.id === id);
+        if (!t) return;
+        const nuevo = (prompt('Nuevo nombre del técnico:', t.nombre) || '').trim();
+        if (!nuevo || nuevo === t.nombre) return;
+        if (totalTecnicos.some(x => x.id !== id && String(x.nombre).trim().toLowerCase() === nuevo.toLowerCase())) { alert('Ya existe un técnico con ese nombre'); return; }
+        const viejo = t.nombre;
+        await totalTecMutate(st => {
+            const x = st.tecnicos.find(y => y.id === id);
+            if (!x) return;
+            x.nombre = nuevo;
+            st.rows.forEach(r => { if (r.tecnico === viejo) r.tecnico = nuevo; });   // los RMAs ya asignados siguen con su técnico
+        }, `Técnico renombrado a ${nuevo}`);
+    };
+    window.totalTecDelete = async (id) => {
+        const t = totalTecnicos.find(x => x.id === id);
+        if (!t) return;
+        if (!confirm(`¿Eliminar al técnico ${t.nombre}? Los RMAs ya asignados conservarán su nombre.`)) return;
+        await totalTecMutate(st => { st.tecnicos = st.tecnicos.filter(x => x.id !== id); }, `Técnico ${t.nombre} eliminado`);
+    };
+    totalConfigBtn.addEventListener('click', () => {
+        if (!totalIsConfigAdmin()) return;
+        renderTotalTecnicos();
+        totalConfigOverlay.classList.add('show');
+        setTimeout(() => totalTecInput.focus(), 50);
+    });
+    document.getElementById('total-config-close').addEventListener('click', () => totalConfigOverlay.classList.remove('show'));
+    document.getElementById('total-tec-add').addEventListener('click', totalTecAdd);
+    totalTecInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') totalTecAdd(); });
 
     /* Clave de la base Total: primero automática (misma clave que ya se tecleó), y si no, se pide */
     function ensureTotalKey() {
@@ -7004,10 +7100,16 @@ document.addEventListener('DOMContentLoaded', () => {
         loginEmailInput.value = '';
         loginPasswordInput.value = '';
         totalAppEl.style.display = 'block';
+        totalConfigBtn.style.display = totalIsConfigAdmin() ? '' : 'none';
         renderTotal();
         if (!(await ensureTotalKey())) return;
         totalUnsub = window._fbTotalListen(
-            (rows) => { totalRows = rows.filter(r => r && r.id && TOTAL_PHASES.some(p => p.key === r.fase)); renderTotal(); },
+            (rows, tecnicos) => {
+                totalRows = rows.filter(r => r && r.id && TOTAL_PHASES.some(p => p.key === r.fase));
+                totalTecnicos = (tecnicos || []).filter(t => t && t.id && t.nombre);
+                renderTotal();
+                if (totalConfigOverlay.classList.contains('show')) renderTotalTecnicos();
+            },
             () => showNotification('No se pudieron cargar los datos de Seguimiento RMA Total')
         );
     }
@@ -7018,7 +7120,9 @@ document.addEventListener('DOMContentLoaded', () => {
         totalCryptoOverlay.classList.remove('show');
         totalCryptoError.textContent = '';
         try { closeTotalRecibido(); } catch (e) {}
-        totalRows = [];
+        totalConfigOverlay.classList.remove('show');
+        totalConfigBtn.style.display = 'none';
+        totalRows = []; totalTecnicos = [];
         document.body.classList.remove('total-mode');
         totalAppEl.style.display = 'none';
         try { renderTotal(); } catch (e) {}
