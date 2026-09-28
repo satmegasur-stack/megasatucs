@@ -1187,6 +1187,8 @@
         }
         .rma-crono-time { font-family: monospace; font-weight: 700; flex: 1; word-break: break-all; }
         .rma-crono-time.paused { color: var(--secondary-color); }
+        .rma-card-crono.ticket { color: #e83e8c; }
+        .rma-ticket-time { font-family: monospace; font-weight: 700; flex: 1; word-break: break-all; color: #e83e8c; }
         .rma-card-espera { margin-top: 5px; font-size: 0.72rem; font-weight: 700; color: var(--warning-color); word-break: break-word; }
 
         /* Buscador del tablero de Seguimiento RMA */
@@ -4135,6 +4137,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 entry.cronometro.startedAt = null;
             }
         }
+        /* Cronómetro "Ticket": mide cuánto tiempo lleva el RMA en la fase Tickets.
+           Es independiente del cronómetro normal y NO se usa en ninguna estadística. */
+        if (entry.fase === RMA_TICKET_PHASE) {
+            if (typeof entry.ticketStartedAt !== 'number' || !isFinite(entry.ticketStartedAt)) {
+                entry.ticketStartedAt = fechaTs(entry.fecha) || Date.now();
+            }
+        } else {
+            entry.ticketStartedAt = null;
+        }
         /* Con "En espera de…" activo el cronómetro siempre debe estar pausado */
         if (entry.esperaMotivo && entry.cronometro.running) {
             entry.cronometro.accumulatedMs += (Date.now() - (entry.cronometro.startedAt || Date.now()));
@@ -4600,6 +4611,19 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         rmaTracking[idx].esperaMotivo = null;
 
+        /* Cronómetro "Ticket": arranca al entrar en la fase Tickets y se detiene al salir
+           (queda registrado en Info). No se contabiliza en ninguna estadística. */
+        if (newPhase === RMA_TICKET_PHASE && oldPhase !== RMA_TICKET_PHASE) {
+            rmaTracking[idx].ticketStartedAt = Date.now();
+        } else if (oldPhase === RMA_TICKET_PHASE && newPhase !== RMA_TICKET_PHASE) {
+            const tStart = rmaTracking[idx].ticketStartedAt;
+            if (typeof tStart === 'number') {
+                if (!Array.isArray(rmaTracking[idx].info)) rmaTracking[idx].info = [];
+                rmaTracking[idx].info.push({ id: genId('rmainfo'), fecha: todayISO(), texto: `Ticket cerrado tras ${rmaCronoFormat(Date.now() - tStart)} en fase Tickets.`, usuario: currentUserEmail });
+            }
+            rmaTracking[idx].ticketStartedAt = null;
+        }
+
         /* Cronómetro automático según fase: en "En espera" se pausa, en el resto continúa/se reanuda */
         const entry = rmaTracking[idx];
         if (!entry.cronometro) entry.cronometro = { running: false, accumulatedMs: 0, startedAt: null };
@@ -4718,6 +4742,12 @@ document.addEventListener('DOMContentLoaded', () => {
         return ms;
     }
 
+    /* Tiempo transcurrido en la fase Tickets (solo informativo; no entra en estadísticas) */
+    function rmaTicketElapsedMs(entry) {
+        if (entry.fase !== RMA_TICKET_PHASE || typeof entry.ticketStartedAt !== 'number') return 0;
+        return Math.max(0, Date.now() - entry.ticketStartedAt);
+    }
+
     /* Cada 24 horas acumuladas cuentan como 1 "día" */
     function rmaCronoFormat(ms) {
         let totalSeconds = Math.floor(Math.max(0, ms) / 1000);
@@ -4738,6 +4768,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const entry = rmaTracking.find(e => e.id === el.dataset.id);
             if (!entry) return;
             el.textContent = rmaCronoFormat(rmaCronoElapsedMs(entry));
+        });
+        document.querySelectorAll('.rma-ticket-time[data-id]').forEach(el => {
+            const entry = rmaTracking.find(e => e.id === el.dataset.id);
+            if (!entry) return;
+            el.textContent = rmaCronoFormat(rmaTicketElapsedMs(entry));
         });
     }
     setInterval(rmaCronoTick, 1000);
@@ -4770,7 +4805,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 <i class="fas fa-circle-info"></i> Info${infoCount ? `<span class="rma-info-count">${infoCount}</span>` : ''}
             </button>`;
         const isRunning = !!(entry.cronometro && entry.cronometro.running);
-        const cronoHtml = `
+        const cronoHtml = entry.fase === RMA_TICKET_PHASE
+            ? `
+            <div class="rma-card-crono ticket" title="Tiempo en fase Ticket (no cuenta en estadísticas)">
+                <i class="fas fa-ticket"></i>
+                <span class="rma-ticket-time" data-id="${entry.id}">${esc(rmaCronoFormat(rmaTicketElapsedMs(entry)))}</span>
+            </div>`
+            : `
             <div class="rma-card-crono">
                 <i class="fas fa-stopwatch"></i>
                 <span class="rma-crono-time${isRunning ? '' : ' paused'}" data-id="${entry.id}">${esc(rmaCronoFormat(rmaCronoElapsedMs(entry)))}</span>
