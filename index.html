@@ -1830,6 +1830,33 @@
     </div>
 </div>
 
+<!-- Total: al pulsar "Recibido" en Pendiente Recibir (garantía + técnico + fase) -->
+<div id="total-recibido-overlay" class="modal-overlay">
+    <div class="modal-box" style="max-width:460px;">
+        <div class="modal-header">
+            <h2><i class="fas fa-box-open"></i> RMA recibido</h2>
+            <button id="total-recibido-close" class="modal-close-btn" title="Cerrar"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="modal-body">
+            <p style="margin:0 0 12px; font-size:0.9rem; color:var(--secondary-color);">Completa los datos del RMA <strong id="total-recibido-title"></strong> para pasarlo de fase.</p>
+            <label style="display:block; font-weight:700; font-size:0.85rem; margin-bottom:6px;">Garantía</label>
+            <div style="display:flex; gap:10px; margin-bottom:14px;">
+                <button type="button" id="total-recibido-g" class="rma-garantia-toggle-btn" onclick="totalRecibidoSetGar('G')"><span class="rma-garantia-dot g"></span> En garantía</button>
+                <button type="button" id="total-recibido-f" class="rma-garantia-toggle-btn" onclick="totalRecibidoSetGar('F')"><span class="rma-garantia-dot f"></span> Fuera de garantía</button>
+            </div>
+            <label for="total-recibido-tecnico" style="display:block; font-weight:700; font-size:0.85rem; margin-bottom:6px;">Técnico asignado</label>
+            <select id="total-recibido-tecnico" style="width:100%; box-sizing:border-box; padding:8px; margin-bottom:14px;"></select>
+            <label for="total-recibido-fase" style="display:block; font-weight:700; font-size:0.85rem; margin-bottom:6px;">Pasar a la fase</label>
+            <select id="total-recibido-fase" style="width:100%; box-sizing:border-box; padding:8px; margin-bottom:8px;"></select>
+            <div id="total-recibido-error" class="login-error" style="text-align:left;"></div>
+            <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
+                <button id="total-recibido-cancel" class="inc-add-update-btn" style="background: var(--secondary-color);">Cancelar</button>
+                <button id="total-recibido-ok" class="inc-add-update-btn"><i class="fas fa-check"></i> Confirmar</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="main-container">
 
     <!-- ── HEADER ── -->
@@ -6789,7 +6816,7 @@ document.addEventListener('DOMContentLoaded', () => {
         { key: 'Reparación',           id: 'reparacion' }
     ];
     const TOTAL_MOVES = {
-        'Pendiente Recibir':    [['Revisión', '→ Revisión', 'to-pretest']],
+        'Pendiente Recibir':    [],
         'Revisión':             [['En espera', '→ En espera', 'to-espera']],
         'En espera':            [['Revisión', '← Revisión', 'to-pretest'], ['Presupuesto aceptado', '→ Presupuesto aceptado', 'to-repair']],
         'Presupuesto aceptado': [['Reparación', '→ Reparación', 'to-final'], ['En espera', '→ En espera', 'to-espera']],
@@ -6819,10 +6846,20 @@ document.addEventListener('DOMContentLoaded', () => {
         const fin = e.fase === 'Reparación'
             ? `<button class="rma-card-finalize" title="Finalizar RMA" onclick="totalRemove('${e.id}', true)"><i class="fas fa-check"></i></button>`
             : `<button class="rma-card-del" title="Quitar del seguimiento" onclick="totalRemove('${e.id}', false)"><i class="fas fa-trash"></i></button>`;
+        const recibido = e.fase === 'Pendiente Recibir'
+            ? `<button class="rma-move-btn to-pretest" onclick="totalOpenRecibido('${e.id}')"><i class="fas fa-box-open"></i> Recibido</button>`
+            : '';
+        const garantiaDot = e.garantia === 'G'
+            ? '<span class="rma-garantia-dot g" title="En garantía"></span>'
+            : e.garantia === 'F'
+                ? '<span class="rma-garantia-dot f" title="Fuera de garantía"></span>'
+                : '';
+        const tecnico = e.tecnico ? `<div class="total-date"><i class="fas fa-user-cog"></i> ${esc(e.tecnico)}</div>` : '';
         return `
             <div class="rma-card">
-                <div class="rma-card-top"><span class="rma-card-num">${esc(e.rma)}</span>${fin}</div>
-                <div class="rma-card-actions">${btns}</div>
+                <div class="rma-card-top"><span class="rma-card-num">${garantiaDot}${esc(e.rma)}</span>${fin}</div>
+                <div class="rma-card-actions">${recibido}${btns}</div>
+                ${tecnico}
                 <div class="total-date">${esc(e.fecha || '')}</div>
             </div>`;
     }
@@ -6872,6 +6909,56 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('total-add-btn').addEventListener('click', totalAdd);
     totalNewInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') totalAdd(); });
     totalSearchInput.addEventListener('input', renderTotal);
+
+    /* ── "Recibido": garantía + técnico + fase de destino ── */
+    const totalRecibidoOverlay = document.getElementById('total-recibido-overlay');
+    const totalRecibidoTitle   = document.getElementById('total-recibido-title');
+    const totalRecibidoTecnico = document.getElementById('total-recibido-tecnico');
+    const totalRecibidoFase    = document.getElementById('total-recibido-fase');
+    const totalRecibidoError   = document.getElementById('total-recibido-error');
+    let totalRecibidoId = null, totalRecibidoGar = null;
+
+    window.totalRecibidoSetGar = (g) => {
+        totalRecibidoGar = g;
+        document.getElementById('total-recibido-g').classList.toggle('active-g', g === 'G');
+        document.getElementById('total-recibido-f').classList.toggle('active-f', g === 'F');
+    };
+    function closeTotalRecibido() {
+        totalRecibidoOverlay.classList.remove('show');
+        totalRecibidoId = null; totalRecibidoGar = null;
+        totalRecibidoError.textContent = '';
+    }
+    window.totalOpenRecibido = (id) => {
+        const r = totalRows.find(x => x.id === id);
+        if (!r) return;
+        totalRecibidoId = id;
+        totalRecibidoTitle.textContent = r.rma;
+        totalRecibidoSetGar(r.garantia === 'G' || r.garantia === 'F' ? r.garantia : null);
+        const tecnicos = userRoles.filter(u => u && u.role === 'tecnico' && u.email).map(u => u.email);
+        totalRecibidoTecnico.innerHTML = '<option value="">— Selecciona un técnico —</option>' +
+            tecnicos.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+        totalRecibidoFase.innerHTML = TOTAL_PHASES.filter(p => p.key !== 'Pendiente Recibir')
+            .map(p => `<option value="${esc(p.key)}">${esc(p.key)}</option>`).join('');
+        totalRecibidoFase.value = 'Revisión';
+        totalRecibidoError.textContent = tecnicos.length ? '' : 'No hay usuarios de tipo Técnico. Créalos desde la gestión de usuarios.';
+        totalRecibidoOverlay.classList.add('show');
+    };
+    document.getElementById('total-recibido-close').addEventListener('click', closeTotalRecibido);
+    document.getElementById('total-recibido-cancel').addEventListener('click', closeTotalRecibido);
+    document.getElementById('total-recibido-ok').addEventListener('click', async () => {
+        const id = totalRecibidoId, gar = totalRecibidoGar;
+        const tecnico = totalRecibidoTecnico.value, fase = totalRecibidoFase.value;
+        if (!gar) { totalRecibidoError.textContent = 'Indica si está en garantía o fuera de garantía'; return; }
+        if (!tecnico) { totalRecibidoError.textContent = 'Selecciona el técnico al que asignar el RMA'; return; }
+        if (!TOTAL_PHASES.some(p => p.key === fase && p.key !== 'Pendiente Recibir')) { totalRecibidoError.textContent = 'Selecciona la fase'; return; }
+        const r = totalRows.find(x => x.id === id);
+        closeTotalRecibido();
+        await totalMutate(rows => {
+            const x = rows.find(y => y.id === id);
+            if (x) { x.garantia = gar; x.tecnico = tecnico; x.fase = fase; x.fecha = nowStr(); x.usuario = currentUserEmail; }
+            return rows;
+        }, `RMA ${r ? r.rma : ''} recibido y asignado a ${tecnico} (${fase})`);
+    });
 
     /* Clave de la base Total: primero automática (misma clave que ya se tecleó), y si no, se pide */
     function ensureTotalKey() {
@@ -6930,6 +7017,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (totalCryptoResolve) { const r = totalCryptoResolve; totalCryptoResolve = null; r(false); }
         totalCryptoOverlay.classList.remove('show');
         totalCryptoError.textContent = '';
+        try { closeTotalRecibido(); } catch (e) {}
         totalRows = [];
         document.body.classList.remove('total-mode');
         totalAppEl.style.display = 'none';
