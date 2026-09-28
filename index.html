@@ -10,7 +10,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
         import { initializeFirestore, getDocFromServer, doc, getDoc, setDoc, onSnapshot, runTransaction, collection, getDocs, writeBatch, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-        import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, updatePassword, signOut, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+        import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, updatePassword, signOut, setPersistence, browserLocalPersistence, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBSCWdU5cwGIqbvCP359EEc385D4uOqoKU",
@@ -144,6 +144,7 @@
 
         const CRYPTO_CHECK_AAD = 'config/crypto';
         const REMEMBER_KEY = 'enc_key_v1';
+        let lastPass = null;   // clave tecleada en esta sesión (solo memoria): se reutiliza para la base de Total
         window._fbLoadOk = {};     // colección -> true si se leyó bien la última vez
         window._fbForce = false;   // true solo durante la restauración de backup
         let currentSalt = null;   // sal (base64) de la clave con la que esta sesión desbloqueó los datos
@@ -155,7 +156,7 @@
 
         window._fbCryptoSupported = cryptoSupported;
         window._fbCryptoReady = () => !!cryptoKeys;
-        window._fbCryptoLock = () => { cryptoKeys = null; currentSalt = null; window._fbLoadOk = {}; };
+        window._fbCryptoLock = () => { cryptoKeys = null; currentSalt = null; window._fbLoadOk = {}; lastPass = null; if (window._fbTotalLock) window._fbTotalLock(); };
         window._fbCryptoRemembered = () => { try { return !!localStorage.getItem(REMEMBER_KEY); } catch (e) { return false; } };
         window._fbCryptoForget = () => { try { localStorage.removeItem(REMEMBER_KEY); } catch (e) {} };
 
@@ -179,6 +180,7 @@
                 tx.set(cryptoRef(), { salt: saltB64, check });
             });
             cryptoKeys = keys;
+            lastPass = passphrase;
             currentSalt = saltB64;
             if (remember) rememberMaster(saltB64, master);
         };
@@ -195,6 +197,7 @@
                 if (!r || r.ok !== true) throw new Error('bad');
             } catch (e) { throw new Error('wrong'); }
             cryptoKeys = keys;
+            lastPass = passphrase;
             currentSalt = salt;
             if (remember) rememberMaster(salt, master);
         };
@@ -699,6 +702,117 @@
             (snap) => onChange(snap.exists() ? snap.data() : null),
             (e) => { console.error('Firebase onSnapshot version error:', e); if (onError) onError(e); }
         );
+
+        /* ══════════════════════════════════════════════════════════════
+           BASE DE DATOS "TOTAL" (proyecto portatilsattr) — usuarios de tipo Total
+           Independiente de la base principal. Mismo esquema de cifrado (AES-256-GCM en el
+           navegador) y misma clave de cifrado; tiene su propia sal y su propio config/crypto.
+           Colección: total_rma/entries → { rows } cifrado.
+        ══════════════════════════════════════════════════════════════ */
+        const totalConfig = {
+            apiKey: "AIzaSyDFhngwon_9IZTcmyRYWTiWdkSY4L_hlNs",
+            authDomain: "portatilsattr.firebaseapp.com",
+            projectId: "portatilsattr",
+            storageBucket: "portatilsattr.firebasestorage.app",
+            messagingSenderId: "104701294591",
+            appId: "1:104701294591:web:1afdffd4b1299aed02d9ca",
+            measurementId: "G-G04J7BQ82E"
+        };
+        const totalApp  = initializeApp(totalConfig, 'Total');
+        const totalDb   = initializeFirestore(totalApp, { experimentalAutoDetectLongPolling: true });
+        const totalAuth = getAuth(totalApp);
+        const TOTAL_REMEMBER_KEY = 'enc_key_total_v1';
+        const TOTAL_AAD = 'total_rma/entries';
+        let totalKeys = null, totalSalt = null;
+        const totalCryptoRef = () => doc(totalDb, 'config', 'crypto');
+        const totalRowsRef   = () => doc(totalDb, 'total_rma', 'entries');
+        const totalDecode = async (d) => isEncrypted(d) ? decryptWith(totalKeys, d, TOTAL_AAD) : d;
+
+        /* Si las reglas de Firestore de portatilsattr exigen sesión, se intenta entrar de forma anónima */
+        async function totalConnect() {
+            try { if (!totalAuth.currentUser) await signInAnonymously(totalAuth); } catch (e) { console.warn('Total: sin sesión anónima', e && e.code); }
+        }
+        window._fbTotalReady = () => !!totalKeys;
+        window._fbTotalLock  = () => { totalKeys = null; totalSalt = null; };
+        window._fbTotalForget = () => { try { localStorage.removeItem(TOTAL_REMEMBER_KEY); } catch (e) {} };
+
+        /* Desbloquea la base Total con la clave; si aún no tiene config/crypto, la crea con esa clave */
+        window._fbTotalOpen = async (pass, remember) => {
+            if (!cryptoSupported()) throw new Error('nocrypto');
+            await totalConnect();
+            const snap = await getDoc(totalCryptoRef());
+            const remem = (saltB64, master) => { if (remember) { try { localStorage.setItem(TOTAL_REMEMBER_KEY, JSON.stringify({ salt: saltB64, master: b64enc(master) })); } catch (e) {} } };
+            if (!snap.exists()) {
+                const salt = crypto.getRandomValues(new Uint8Array(16));
+                const master = await deriveMaster(pass, salt);
+                const keys = await keysFromMaster(master);
+                const check = await encryptWith(keys, { ok: true, t: Date.now() }, CRYPTO_CHECK_AAD);
+                const saltB64 = b64enc(salt);
+                let created = true;
+                await runTransaction(totalDb, async (tx) => {
+                    const s2 = await tx.get(totalCryptoRef());
+                    if (s2.exists()) { created = false; return; }
+                    tx.set(totalCryptoRef(), { salt: saltB64, check });
+                });
+                if (created) { totalKeys = keys; totalSalt = saltB64; remem(saltB64, master); return; }
+                return window._fbTotalOpen(pass, remember);
+            }
+            const { salt, check } = snap.data();
+            const master = await deriveMaster(pass, b64dec(salt));
+            const keys = await keysFromMaster(master);
+            try {
+                const r = await decryptWith(keys, check, CRYPTO_CHECK_AAD);
+                if (!r || r.ok !== true) throw new Error('bad');
+            } catch (e) { throw new Error('wrong'); }
+            totalKeys = keys; totalSalt = salt; remem(salt, master);
+        };
+
+        /* Intento automático: primero con la clave tecleada al entrar, luego con la recordada en este equipo */
+        window._fbTotalTryAuto = async () => {
+            if (!cryptoSupported()) return false;
+            if (lastPass) {
+                try { await window._fbTotalOpen(lastPass, false); return true; }
+                catch (e) { if (!e || e.message !== 'wrong') throw e; }
+            }
+            let saved = null;
+            try { saved = JSON.parse(localStorage.getItem(TOTAL_REMEMBER_KEY)); } catch (e) {}
+            if (!saved || !saved.master) return false;
+            await totalConnect();
+            const snap = await getDoc(totalCryptoRef());
+            if (!snap.exists() || snap.data().salt !== saved.salt) { window._fbTotalForget(); return false; }
+            try {
+                const keys = await keysFromMaster(b64dec(saved.master));
+                const r = await decryptWith(keys, snap.data().check, CRYPTO_CHECK_AAD);
+                if (!r || r.ok !== true) throw new Error('bad');
+                totalKeys = keys; totalSalt = saved.salt;
+                return true;
+            } catch (e) { window._fbTotalForget(); return false; }
+        };
+
+        /* Escucha en tiempo real (cada cambio se descifra antes de entregarlo) */
+        window._fbTotalListen = (onChange, onError) => {
+            let seq = 0;
+            return onSnapshot(totalRowsRef(), async (snap) => {
+                const mine = ++seq;
+                try {
+                    const d = snap.exists() ? await totalDecode(snap.data()) : null;
+                    if (mine === seq) onChange((d && d.rows) || []);
+                } catch (e) { console.error('Total: error al descifrar', e); if (onError) onError(e); }
+            }, (e) => { console.error('Total: onSnapshot', e); if (onError) onError(e); });
+        };
+
+        /* Lee-modifica-escribe dentro de una transacción: dos usuarios no se pisan los cambios */
+        window._fbTotalMutate = async (fn) => {
+            if (!totalKeys) throw new Error('locked');
+            return runTransaction(totalDb, async (tx) => {
+                const snap = await tx.get(totalRowsRef());
+                const d = snap.exists() ? await totalDecode(snap.data()) : null;
+                const rows = (d && d.rows) || [];
+                const out = fn(rows) || rows;
+                tx.set(totalRowsRef(), await encryptWith(totalKeys, { rows: out }, TOTAL_AAD));
+                return out;
+            });
+        };
 
         window._firebaseReady = true;
         document.dispatchEvent(new Event('firebaseReady'));
@@ -1395,6 +1509,12 @@
         }
         .logout-btn:hover { background: #565e64; }
 
+        /* ── Modo Total: solo Seguimiento RMA Total ── */
+        body.total-mode .main-container { display: none !important; }
+        #total-app { display: none; width: 100%; max-width: 90%; margin: 0 auto; box-sizing: border-box; }
+        #total-app .modal-box { max-width: 100%; width: 100%; max-height: none; box-shadow: none; }
+        .total-date { font-size: 0.72rem; color: var(--secondary-color); margin-top: 4px; }
+
         /* ── Modo restringido: solo Seguimiento RMA ── */
         body.restricted-mode .header,
         body.restricted-mode #data-container,
@@ -1740,6 +1860,41 @@
 <div id="user-bar" class="user-bar">
     <span id="user-bar-email"></span>
     <button id="logout-btn" class="logout-btn"><i class="fas fa-sign-out-alt"></i> Cerrar sesión</button>
+</div>
+
+<!-- ══════════════ SEGUIMIENTO RMA TOTAL (usuarios de tipo Total) ══════════════ -->
+<div id="total-app">
+    <div class="modal-box">
+        <div class="modal-header">
+            <h2><i class="fas fa-tasks"></i> Seguimiento RMA Total</h2>
+        </div>
+        <div class="modal-body">
+            <div class="rma-add-form">
+                <input type="text" id="total-new-input" placeholder="Añadir RMA a Pendiente Recibir..." autocomplete="off">
+                <button id="total-add-btn" class="rma-add-btn"><i class="fas fa-plus"></i> Añadir</button>
+            </div>
+            <div class="rma-search-wrap">
+                <i class="fas fa-search"></i>
+                <input type="text" id="total-search-input" placeholder="Buscar por RMA..." autocomplete="off">
+            </div>
+            <div class="rma-board" id="total-board"></div>
+        </div>
+    </div>
+</div>
+<div id="total-crypto-overlay" class="modal-overlay">
+    <div class="modal-box" style="max-width:420px;">
+        <div class="modal-header"><h2><i class="fas fa-key"></i> Clave de cifrado</h2></div>
+        <div class="modal-body">
+            <p id="total-crypto-msg" style="margin:0 0 10px; font-size:0.9rem; color:var(--secondary-color);">Introduce la clave de cifrado para abrir el Seguimiento RMA Total.</p>
+            <input type="password" id="total-crypto-pass" placeholder="Clave de cifrado" autocomplete="off" style="width:100%; box-sizing:border-box; padding:8px; margin-bottom:8px;">
+            <label style="font-size:0.85rem;"><input type="checkbox" id="total-crypto-remember"> Recordar en este equipo</label>
+            <div id="total-crypto-error" class="login-error" style="text-align:left;"></div>
+            <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
+                <button id="total-crypto-logout" class="inc-add-update-btn" style="background: var(--secondary-color);">Cerrar sesión</button>
+                <button id="total-crypto-btn" class="inc-add-update-btn"><i class="fas fa-unlock"></i> Desbloquear</button>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div class="main-container">
@@ -2278,6 +2433,7 @@
                     <select id="settings-new-role">
                         <option value="tecnico">Técnico (solo Seguimiento RMA)</option>
                         <option value="admin">Administrador (acceso completo)</option>
+                        <option value="total">Total (solo Seguimiento RMA Total)</option>
                     </select>
                     <button id="settings-create-btn" class="rma-add-btn"><i class="fas fa-user-plus"></i> Crear usuario</button>
                 </div>
@@ -5897,7 +6053,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const e = (email || '').toLowerCase();
         if (e === MASTER_EMAIL) return 'master';
         const found = userRoles.find(u => (u.email || '').toLowerCase() === e);
-        return (found && found.role === 'admin') ? 'admin' : 'tecnico';
+        return (found && found.role === 'admin') ? 'admin' : (found && found.role === 'total') ? 'total' : 'tecnico';
     }
 
     function renderSettingsUsers() {
@@ -5926,6 +6082,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <select class="settings-user-role" onchange="settingsChangeRole(${idx}, this.value)">
                     <option value="tecnico" ${u.role === 'tecnico' ? 'selected' : ''}>Técnico</option>
                     <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Administrador</option>
+                    <option value="total" ${u.role === 'total' ? 'selected' : ''}>Total</option>
                 </select>
                 <button class="rma-card-del" title="Quitar de la lista" onclick="settingsRemoveUser(${idx})"><i class="fas fa-trash"></i></button>
             </div>`).join('');
@@ -5945,7 +6102,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!userRoles[idx]) return;
         userRoles[idx].role = role;
         await saveUserRoles();
-        showNotification(`Rol de ${userRoles[idx].email} actualizado a ${role === 'admin' ? 'Administrador' : 'Técnico'}`);
+        showNotification(`Rol de ${userRoles[idx].email} actualizado a ${role === 'admin' ? 'Administrador' : role === 'total' ? 'Total' : 'Técnico'}`);
     };
 
     window.settingsTogglePass = function(idx) {
@@ -6218,7 +6375,7 @@ document.addEventListener('DOMContentLoaded', () => {
             renderSettingsUsers();
             settingsNewEmail.value = '';
             settingsNewPassword.value = '';
-            showNotification(`Usuario ${email} creado como ${role === 'admin' ? 'Administrador' : 'Técnico'}`);
+            showNotification(`Usuario ${email} creado como ${role === 'admin' ? 'Administrador' : role === 'total' ? 'Total' : 'Técnico'}`);
         } catch (err) {
             if (err.code === 'auth/email-already-in-use') settingsError.textContent = 'Ya existe una cuenta con ese correo';
             else if (err.code === 'auth/invalid-email') settingsError.textContent = 'Correo electrónico no válido';
@@ -6587,6 +6744,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function stopDataSync() {
+        stopTotalMode();
         stopVersionWatch();
         document.getElementById('update-modal-overlay').classList.remove('show');
         stopCryptoWatch();
@@ -6683,14 +6841,177 @@ document.addEventListener('DOMContentLoaded', () => {
         cryptoStatusEl.textContent = 'Este equipo ya no recuerda la clave: se pedirá la próxima vez que inicies sesión.';
     });
 
+    /* ════════════════════════════════════════
+       SEGUIMIENTO RMA TOTAL (usuarios de tipo Total)
+       Módulo independiente: solo usa la base "Total" (portatilsattr). No toca Transporte,
+       Incidencias, Seguimiento RMA ni ningún otro dato de la aplicación principal.
+       Fases: Pendiente Recibir → Revisión → En espera → Presupuesto aceptado → Reparación
+       (Revisión = Pretest, Presupuesto aceptado = Repair, Reparación = Final Test).
+    ════════════════════════════════════════ */
+    const TOTAL_PHASES = [
+        { key: 'Pendiente Recibir',    id: 'pendiente' },
+        { key: 'Revisión',             id: 'revision' },
+        { key: 'En espera',            id: 'espera' },
+        { key: 'Presupuesto aceptado', id: 'presupuesto' },
+        { key: 'Reparación',           id: 'reparacion' }
+    ];
+    const TOTAL_MOVES = {
+        'Pendiente Recibir':    [['Revisión', '→ Revisión', 'to-pretest']],
+        'Revisión':             [['En espera', '→ En espera', 'to-espera']],
+        'En espera':            [['Revisión', '← Revisión', 'to-pretest'], ['Presupuesto aceptado', '→ Presupuesto aceptado', 'to-repair']],
+        'Presupuesto aceptado': [['Reparación', '→ Reparación', 'to-final'], ['En espera', '→ En espera', 'to-espera']],
+        'Reparación':           [['En espera', '→ En espera', 'to-espera']]
+    };
+    const totalAppEl       = document.getElementById('total-app');
+    const totalBoardEl     = document.getElementById('total-board');
+    const totalNewInput    = document.getElementById('total-new-input');
+    const totalSearchInput = document.getElementById('total-search-input');
+    const totalCryptoOverlay = document.getElementById('total-crypto-overlay');
+    const totalCryptoPass  = document.getElementById('total-crypto-pass');
+    const totalCryptoError = document.getElementById('total-crypto-error');
+    const totalCryptoBtn   = document.getElementById('total-crypto-btn');
+    const totalCryptoMsg   = document.getElementById('total-crypto-msg');
+    let totalRows = [];
+    let totalUnsub = null;
+    let totalCryptoResolve = null;
+
+    totalBoardEl.innerHTML = TOTAL_PHASES.map(ph => `
+        <div class="rma-column" data-phase="${ph.key}">
+            <div class="rma-column-header"><span>${ph.key}</span><span class="rma-column-count" id="total-count-${ph.id}">0</span></div>
+            <div id="total-list-${ph.id}"></div>
+        </div>`).join('');
+
+    function totalCardHtml(e) {
+        const btns = (TOTAL_MOVES[e.fase] || []).map(m => `<button class="rma-move-btn ${m[2]}" onclick="totalMovePhase('${e.id}','${m[0]}')">${m[1]}</button>`).join('');
+        const fin = e.fase === 'Reparación'
+            ? `<button class="rma-card-finalize" title="Finalizar RMA" onclick="totalRemove('${e.id}', true)"><i class="fas fa-check"></i></button>`
+            : `<button class="rma-card-del" title="Quitar del seguimiento" onclick="totalRemove('${e.id}', false)"><i class="fas fa-trash"></i></button>`;
+        return `
+            <div class="rma-card">
+                <div class="rma-card-top"><span class="rma-card-num">${esc(e.rma)}</span>${fin}</div>
+                <div class="rma-card-actions">${btns}</div>
+                <div class="total-date">${esc(e.fecha || '')}</div>
+            </div>`;
+    }
+
+    function renderTotal() {
+        const term = (totalSearchInput.value || '').trim().toLowerCase();
+        TOTAL_PHASES.forEach(ph => {
+            let items = totalRows.filter(e => e.fase === ph.key);
+            if (term) items = items.filter(e => String(e.rma).toLowerCase().includes(term));
+            items.sort((a, b) => fechaTs(b.fecha) - fechaTs(a.fecha));
+            document.getElementById('total-count-' + ph.id).textContent = items.length;
+            document.getElementById('total-list-' + ph.id).innerHTML = items.length
+                ? items.map(totalCardHtml).join('')
+                : `<div class="rma-card-empty">${term ? 'Sin resultados' : 'Sin RMAs'}</div>`;
+        });
+    }
+
+    async function totalMutate(fn, okMsg) {
+        try { await window._fbTotalMutate(fn); if (okMsg) showNotification(okMsg); }
+        catch (e) { console.error(e); alert('No se pudo guardar el cambio en Seguimiento RMA Total. Revisa la conexión e inténtalo de nuevo.'); }
+    }
+
+    async function totalAdd() {
+        const value = totalNewInput.value.trim();
+        if (!value) return;
+        totalNewInput.value = '';
+        const low = value.toLowerCase();
+        let dup = false;
+        await totalMutate(rows => {
+            if (rows.some(r => String(r.rma).trim().toLowerCase() === low)) { dup = true; return rows; }
+            return rows.concat([{ id: genId('rmat'), rma: value, fase: 'Pendiente Recibir', fecha: nowStr(), usuario: currentUserEmail }]);
+        });
+        if (dup) showNotification(`El RMA ${value} ya existe en Seguimiento RMA Total`);
+        else showNotification(`RMA ${value} añadido a Pendiente Recibir`);
+    }
+    window.totalMovePhase = (id, phase) => totalMutate(rows => {
+        const r = rows.find(x => x.id === id);
+        if (r) { r.fase = phase; r.fecha = nowStr(); r.usuario = currentUserEmail; }
+        return rows;
+    }, `RMA movido a "${phase}"`);
+    window.totalRemove = (id, finalize) => {
+        const r = totalRows.find(x => x.id === id);
+        if (!r) return;
+        if (!confirm(finalize ? `¿Finalizar el RMA ${r.rma}?` : `¿Quitar el RMA ${r.rma} del seguimiento?`)) return;
+        return totalMutate(rows => rows.filter(x => x.id !== id), finalize ? `RMA ${r.rma} finalizado` : 'RMA eliminado del seguimiento');
+    };
+    document.getElementById('total-add-btn').addEventListener('click', totalAdd);
+    totalNewInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') totalAdd(); });
+    totalSearchInput.addEventListener('input', renderTotal);
+
+    /* Clave de la base Total: primero automática (misma clave que ya se tecleó), y si no, se pide */
+    function ensureTotalKey() {
+        if (window._fbTotalReady()) return Promise.resolve(true);
+        return new Promise(async (resolve) => {
+            totalCryptoResolve = resolve;
+            try { if (await window._fbTotalTryAuto()) { totalCryptoResolve = null; resolve(true); return; } }
+            catch (e) { console.error(e); totalCryptoError.textContent = 'No se pudo conectar con la base de datos Total. Revisa la conexión y las reglas de Firestore.'; }
+            if (!totalCryptoResolve) return;   // se cerró sesión mientras tanto
+            totalCryptoPass.value = '';
+            totalCryptoOverlay.classList.add('show');
+            setTimeout(() => totalCryptoPass.focus(), 50);
+        });
+    }
+    async function submitTotalCrypto() {
+        const pass = totalCryptoPass.value;
+        if (!pass) { totalCryptoError.textContent = 'Introduce la clave de cifrado'; return; }
+        totalCryptoError.textContent = '';
+        totalCryptoBtn.disabled = true;
+        try {
+            await window._fbTotalOpen(pass, document.getElementById('total-crypto-remember').checked);
+            totalCryptoOverlay.classList.remove('show');
+            totalCryptoPass.value = '';
+            const r = totalCryptoResolve; totalCryptoResolve = null; if (r) r(true);
+        } catch (e) {
+            if (e && e.message === 'wrong') totalCryptoError.textContent = 'Clave de cifrado incorrecta';
+            else { console.error(e); totalCryptoError.textContent = 'No se pudo abrir la base de datos Total (revisa la conexión y las reglas de Firestore)'; }
+        }
+        totalCryptoBtn.disabled = false;
+    }
+    totalCryptoBtn.addEventListener('click', submitTotalCrypto);
+    totalCryptoPass.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitTotalCrypto(); });
+    document.getElementById('total-crypto-logout').addEventListener('click', () => { if (window._fbSignOut) window._fbSignOut(); });
+
+    async function enterTotalMode() {
+        isMaster = false; isAdmin = false;
+        document.body.classList.add('total-mode');
+        document.body.classList.add('not-master');
+        loginScreen.style.display = 'none';
+        userBar.style.display = 'flex';
+        userBarEmail.textContent = currentUserEmail + ' (Total)';
+        loginError.textContent = '';
+        loginEmailInput.value = '';
+        loginPasswordInput.value = '';
+        totalAppEl.style.display = 'block';
+        renderTotal();
+        if (!(await ensureTotalKey())) return;
+        totalUnsub = window._fbTotalListen(
+            (rows) => { totalRows = rows.filter(r => r && r.id && TOTAL_PHASES.some(p => p.key === r.fase)); renderTotal(); },
+            () => showNotification('No se pudieron cargar los datos de Seguimiento RMA Total')
+        );
+    }
+
+    function stopTotalMode() {
+        if (totalUnsub) { try { totalUnsub(); } catch (e) {} totalUnsub = null; }
+        if (totalCryptoResolve) { const r = totalCryptoResolve; totalCryptoResolve = null; r(false); }
+        totalCryptoOverlay.classList.remove('show');
+        totalCryptoError.textContent = '';
+        totalRows = [];
+        document.body.classList.remove('total-mode');
+        totalAppEl.style.display = 'none';
+        try { renderTotal(); } catch (e) {}
+    }
+
     async function handleAuthChange(user) {
         if (user) {
             currentUserEmail = user.email || '';
             const unlocked = await ensureDataKey();
             if (!unlocked) return;
-            startDataSync();
             await loadUserRoles();
             const role = getRoleForEmail(currentUserEmail);
+            if (role === 'total') { await enterTotalMode(); return; }   // Total: no carga nada de la app principal
+            startDataSync();
             isMaster = role === 'master';
             isAdmin  = isMaster || role === 'admin';
 
