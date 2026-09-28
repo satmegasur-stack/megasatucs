@@ -144,7 +144,7 @@
 
         const CRYPTO_CHECK_AAD = 'config/crypto';
         const REMEMBER_KEY = 'enc_key_v1';
-        let lastPass = null;   // clave tecleada en esta sesión (solo memoria): se reutiliza para la base de Total
+        let lastPass = null;   // clave tecleada en esta sesión (solo memoria)
         window._fbLoadOk = {};     // colección -> true si se leyó bien la última vez
         window._fbForce = false;   // true solo durante la restauración de backup
         let currentSalt = null;   // sal (base64) de la clave con la que esta sesión desbloqueó los datos
@@ -242,7 +242,7 @@
                 await batch.commit();
             }
         }
-        const ENCRYPTED_SINGLE_DOCS = ['transporte', 'incidencias', 'incidencias_historial', 'rma_tracking', 'rma_historial', 'rma_contabilidad', 'user_roles', 'inventario'];
+        const ENCRYPTED_SINGLE_DOCS = ['transporte', 'incidencias', 'incidencias_historial', 'rma_tracking', 'rma_historial', 'rma_contabilidad', 'user_roles', 'inventario', 'total_rma'];
 
         const cryptoChangeImpl = async (currentPass, newPass, remember, onProgress, ph) => {
             if (!cryptoSupported()) throw new Error('nocrypto');
@@ -704,90 +704,23 @@
         );
 
         /* ══════════════════════════════════════════════════════════════
-           BASE DE DATOS "TOTAL" (proyecto portatilsattr) — usuarios de tipo Total
-           Independiente de la base principal. Mismo esquema de cifrado (AES-256-GCM en el
-           navegador) y misma clave de cifrado; tiene su propia sal y su propio config/crypto.
-           Colección: total_rma/entries → { rows } cifrado.
+           SEGUIMIENTO RMA TOTAL — usuarios de tipo Total
+           Se guarda en la MISMA base de datos principal (proyecto portatilsatms), pero en su
+           propia colección, separada del Seguimiento RMA normal (rma_tracking):
+             · Seguimiento RMA        → rma_tracking/entries
+             · Seguimiento RMA Total  → total_rma/entries
+           Mismo cifrado (AES-256-GCM en el navegador) y misma clave que el resto de datos.
         ══════════════════════════════════════════════════════════════ */
-        const totalConfig = {
-            apiKey: "AIzaSyDFhngwon_9IZTcmyRYWTiWdkSY4L_hlNs",
-            authDomain: "portatilsattr.firebaseapp.com",
-            projectId: "portatilsattr",
-            storageBucket: "portatilsattr.firebasestorage.app",
-            messagingSenderId: "104701294591",
-            appId: "1:104701294591:web:1afdffd4b1299aed02d9ca",
-            measurementId: "G-G04J7BQ82E"
-        };
-        const totalApp  = initializeApp(totalConfig, 'Total');
-        const totalDb   = initializeFirestore(totalApp, { experimentalAutoDetectLongPolling: true });
-        const totalAuth = getAuth(totalApp);
-        const TOTAL_REMEMBER_KEY = 'enc_key_total_v1';
-        const TOTAL_AAD = 'total_rma/entries';
-        let totalKeys = null, totalSalt = null;
-        const totalCryptoRef = () => doc(totalDb, 'config', 'crypto');
-        const totalRowsRef   = () => doc(totalDb, 'total_rma', 'entries');
-        const totalDecode = async (d) => isEncrypted(d) ? decryptWith(totalKeys, d, TOTAL_AAD) : d;
+        const TOTAL_COL = 'total_rma';
+        const TOTAL_AAD = TOTAL_COL + '/entries';
+        const totalRowsRef = () => doc(db, TOTAL_COL, 'entries');
 
-        /* Si las reglas de Firestore de portatilsattr exigen sesión, se intenta entrar de forma anónima */
-        async function totalConnect() {
-            try { if (!totalAuth.currentUser) await signInAnonymously(totalAuth); } catch (e) { console.warn('Total: sin sesión anónima', e && e.code); }
-        }
-        window._fbTotalReady = () => !!totalKeys;
-        window._fbTotalLock  = () => { totalKeys = null; totalSalt = null; };
-        window._fbTotalForget = () => { try { localStorage.removeItem(TOTAL_REMEMBER_KEY); } catch (e) {} };
-
-        /* Desbloquea la base Total con la clave; si aún no tiene config/crypto, la crea con esa clave */
-        window._fbTotalOpen = async (pass, remember) => {
-            if (!cryptoSupported()) throw new Error('nocrypto');
-            await totalConnect();
-            const snap = await getDoc(totalCryptoRef());
-            const remem = (saltB64, master) => { if (remember) { try { localStorage.setItem(TOTAL_REMEMBER_KEY, JSON.stringify({ salt: saltB64, master: b64enc(master) })); } catch (e) {} } };
-            if (!snap.exists()) {
-                const salt = crypto.getRandomValues(new Uint8Array(16));
-                const master = await deriveMaster(pass, salt);
-                const keys = await keysFromMaster(master);
-                const check = await encryptWith(keys, { ok: true, t: Date.now() }, CRYPTO_CHECK_AAD);
-                const saltB64 = b64enc(salt);
-                let created = true;
-                await runTransaction(totalDb, async (tx) => {
-                    const s2 = await tx.get(totalCryptoRef());
-                    if (s2.exists()) { created = false; return; }
-                    tx.set(totalCryptoRef(), { salt: saltB64, check });
-                });
-                if (created) { totalKeys = keys; totalSalt = saltB64; remem(saltB64, master); return; }
-                return window._fbTotalOpen(pass, remember);
-            }
-            const { salt, check } = snap.data();
-            const master = await deriveMaster(pass, b64dec(salt));
-            const keys = await keysFromMaster(master);
-            try {
-                const r = await decryptWith(keys, check, CRYPTO_CHECK_AAD);
-                if (!r || r.ok !== true) throw new Error('bad');
-            } catch (e) { throw new Error('wrong'); }
-            totalKeys = keys; totalSalt = salt; remem(salt, master);
-        };
-
-        /* Intento automático: primero con la clave tecleada al entrar, luego con la recordada en este equipo */
-        window._fbTotalTryAuto = async () => {
-            if (!cryptoSupported()) return false;
-            if (lastPass) {
-                try { await window._fbTotalOpen(lastPass, false); return true; }
-                catch (e) { if (!e || e.message !== 'wrong') throw e; }
-            }
-            let saved = null;
-            try { saved = JSON.parse(localStorage.getItem(TOTAL_REMEMBER_KEY)); } catch (e) {}
-            if (!saved || !saved.master) return false;
-            await totalConnect();
-            const snap = await getDoc(totalCryptoRef());
-            if (!snap.exists() || snap.data().salt !== saved.salt) { window._fbTotalForget(); return false; }
-            try {
-                const keys = await keysFromMaster(b64dec(saved.master));
-                const r = await decryptWith(keys, snap.data().check, CRYPTO_CHECK_AAD);
-                if (!r || r.ok !== true) throw new Error('bad');
-                totalKeys = keys; totalSalt = saved.salt;
-                return true;
-            } catch (e) { window._fbTotalForget(); return false; }
-        };
+        /* La clave es la de la app principal: si ya está desbloqueada, Total también lo está */
+        window._fbTotalReady  = () => !!cryptoKeys;
+        window._fbTotalLock   = () => {};
+        window._fbTotalForget = () => {};
+        window._fbTotalOpen   = async () => { if (!cryptoKeys) throw new Error('locked'); };
+        window._fbTotalTryAuto = async () => !!cryptoKeys;
 
         /* Escucha en tiempo real (cada cambio se descifra antes de entregarlo) */
         window._fbTotalListen = (onChange, onError) => {
@@ -795,7 +728,7 @@
             return onSnapshot(totalRowsRef(), async (snap) => {
                 const mine = ++seq;
                 try {
-                    const d = snap.exists() ? await totalDecode(snap.data()) : null;
+                    const d = snap.exists() ? await decodeDoc(snap.data(), TOTAL_AAD) : null;
                     if (mine === seq) onChange((d && d.rows) || []);
                 } catch (e) { console.error('Total: error al descifrar', e); if (onError) onError(e); }
             }, (e) => { console.error('Total: onSnapshot', e); if (onError) onError(e); });
@@ -803,13 +736,13 @@
 
         /* Lee-modifica-escribe dentro de una transacción: dos usuarios no se pisan los cambios */
         window._fbTotalMutate = async (fn) => {
-            if (!totalKeys) throw new Error('locked');
-            return runTransaction(totalDb, async (tx) => {
+            if (!cryptoKeys) throw new Error('locked');
+            return runTransaction(db, async (tx) => {
                 const snap = await tx.get(totalRowsRef());
-                const d = snap.exists() ? await totalDecode(snap.data()) : null;
+                const d = snap.exists() ? await decodeDoc(snap.data(), TOTAL_AAD) : null;
                 const rows = (d && d.rows) || [];
                 const out = fn(rows) || rows;
-                tx.set(totalRowsRef(), await encryptWith(totalKeys, { rows: out }, TOTAL_AAD));
+                tx.set(totalRowsRef(), await encodeDoc({ rows: out }, TOTAL_AAD));
                 return out;
             });
         };
@@ -6843,8 +6776,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /* ════════════════════════════════════════
        SEGUIMIENTO RMA TOTAL (usuarios de tipo Total)
-       Módulo independiente: solo usa la base "Total" (portatilsattr). No toca Transporte,
-       Incidencias, Seguimiento RMA ni ningún otro dato de la aplicación principal.
+       Módulo independiente: guarda sus datos en la colección total_rma (base principal portatilsatms),
+       separada de Seguimiento RMA (rma_tracking). No toca Transporte, Incidencias ni Seguimiento RMA.
        Fases: Pendiente Recibir → Revisión → En espera → Presupuesto aceptado → Reparación
        (Revisión = Pretest, Presupuesto aceptado = Repair, Reparación = Final Test).
     ════════════════════════════════════════ */
@@ -6946,7 +6879,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return new Promise(async (resolve) => {
             totalCryptoResolve = resolve;
             try { if (await window._fbTotalTryAuto()) { totalCryptoResolve = null; resolve(true); return; } }
-            catch (e) { console.error(e); totalCryptoError.textContent = 'No se pudo conectar con la base de datos Total. Revisa la conexión y las reglas de Firestore.'; }
+            catch (e) { console.error(e); totalCryptoError.textContent = 'No se pudo abrir Seguimiento RMA Total. Revisa la conexión y las reglas de Firestore (colección total_rma).'; }
             if (!totalCryptoResolve) return;   // se cerró sesión mientras tanto
             totalCryptoPass.value = '';
             totalCryptoOverlay.classList.add('show');
@@ -6965,7 +6898,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const r = totalCryptoResolve; totalCryptoResolve = null; if (r) r(true);
         } catch (e) {
             if (e && e.message === 'wrong') totalCryptoError.textContent = 'Clave de cifrado incorrecta';
-            else { console.error(e); totalCryptoError.textContent = 'No se pudo abrir la base de datos Total (revisa la conexión y las reglas de Firestore)'; }
+            else { console.error(e); totalCryptoError.textContent = 'No se pudo abrir Seguimiento RMA Total (revisa la conexión y las reglas de Firestore)'; }
         }
         totalCryptoBtn.disabled = false;
     }
